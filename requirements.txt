@@ -1,0 +1,36 @@
+# Enhanced Trading Simulator Requirements
+# Dependencies for the comprehensive trading simulator
+
+# Core data science libraries
+pandas>=1.5.0
+numpy>=1.21.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Financial data and analysis
+yfinance>=0.2.0
+talib-binary>=0.4.0
+
+# Machine learning and deep learning
+tensorflow>=2.10.0
+scikit-learn>=1.1.0
+
+# FIX protocol support
+simplefix>=1.0.0
+
+# News API for sentiment analysis
+newsapi-python>=0.2.0
+
+# Additional utilities
+requests>=2.28.0
+python-dateutil>=2.8.0
+
+# Optional: For advanced features
+# plotly>=5.0.0  # For interactive visualizations
+# dash>=2.0.0    # For web-based dashboards
+# streamlit>=1.20.0  # For rapid prototyping
+
+# Development and testing
+pytest>=7.0.0
+black>=22.0.0
+flake8>=5.0.0
