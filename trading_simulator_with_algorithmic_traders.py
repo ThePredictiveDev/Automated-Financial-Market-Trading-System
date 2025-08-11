@@ -25,6 +25,7 @@ from bisect import insort  # noqa: F401 (kept for parity with notebook; not used
 import argparse
 import logging
 import os
+import json
 import random
 import socket
 import threading
@@ -511,6 +512,11 @@ class MatchingEngine:
         self._queue_cond = threading.Condition(self._lock)
         self._loop_running: bool = False
         self._loop_thread: Optional[threading.Thread] = None
+        # Snapshotting
+        self.snapshot_interval_sec: int = 0
+        self.snapshot_dir: Optional[str] = None
+        self._snapshot_thread: Optional[threading.Thread] = None
+        self._snapshot_running: bool = False
 
     def subscribe_trades(self, callback: Callable[["Execution"], None]) -> None:
         self._trade_subscribers.append(callback)
@@ -729,6 +735,70 @@ class MatchingEngine:
                 if q:
                     asks.append((px, sum(o.quantity for o in q)))
             return {"bids": bids, "asks": asks}
+
+    def _snapshot_once(self) -> None:
+        try:
+            if not self.snapshot_dir:
+                return
+            os.makedirs(self.snapshot_dir, exist_ok=True)
+            snap = {"bids": [], "asks": []}
+            with self._lock:
+                for px in self.order_book._bid_prices:
+                    q = self.order_book.bids.get(px)
+                    if not q:
+                        continue
+                    snap["bids"].append({"price": px, "orders": [
+                        {"id": o.id, "qty": o.quantity, "owner": getattr(o, 'owner_id', '')} for o in q
+                    ]})
+                for px in self.order_book._ask_prices:
+                    q = self.order_book.asks.get(px)
+                    if not q:
+                        continue
+                    snap["asks"].append({"price": px, "orders": [
+                        {"id": o.id, "qty": o.quantity, "owner": getattr(o, 'owner_id', '')} for o in q
+                    ]})
+            path = os.path.join(self.snapshot_dir, f"snapshot_{int(time.time())}.json")
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(snap, f)
+        except Exception as exc:
+            logging.debug("Snapshot failed: %s", exc)
+
+    def snapshot_now(self) -> None:
+        self._snapshot_once()
+
+    def _snapshot_loop(self) -> None:
+        while True:
+            with self._lock:
+                if not self._snapshot_running or self.snapshot_interval_sec <= 0:
+                    break
+                interval = self.snapshot_interval_sec
+            try:
+                self._snapshot_once()
+            except Exception:
+                pass
+            time.sleep(max(1, int(interval)))
+
+    def start_snapshotting(self, interval_sec: int, out_dir: str) -> None:
+        with self._lock:
+            self.snapshot_interval_sec = max(0, int(interval_sec))
+            self.snapshot_dir = out_dir
+            if self.snapshot_interval_sec <= 0:
+                return
+            if self._snapshot_running:
+                return
+            self._snapshot_running = True
+            self._snapshot_thread = threading.Thread(target=self._snapshot_loop, daemon=True)
+            self._snapshot_thread.start()
+
+    def stop_snapshotting(self) -> None:
+        with self._lock:
+            self._snapshot_running = False
+        if self._snapshot_thread is not None:
+            try:
+                self._snapshot_thread.join(timeout=3)
+            except Exception:
+                pass
+            self._snapshot_thread = None
 
     def start_auction(self, phase: str) -> None:
         with self._lock:

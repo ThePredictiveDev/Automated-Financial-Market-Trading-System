@@ -17,7 +17,7 @@ import uuid
 from typing import Any, Dict, List, Optional
 import pandas as pd
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -53,6 +53,9 @@ from trading_simulator_with_algorithmic_traders import (
     PortfolioDispatcher,
 )
 import asyncio
+import os
+import time
+from collections import defaultdict, deque
 try:
     import optuna  # type: ignore
     _OPTUNA = True
@@ -708,6 +711,66 @@ class TradingController:
 controller = TradingController()
 app = FastAPI()
 
+# -------------------------------
+# API Auth and Rate Limiting
+# -------------------------------
+API_TOKEN = os.environ.get('API_TOKEN')
+RATE_LIMIT_MUTATIONS_PER_SEC = int(os.environ.get('API_RATE_LIMIT_PER_SEC', '10'))
+_rate_buckets: defaultdict[str, deque] = defaultdict(deque)
+
+def require_api_key(req: Request) -> None:
+    if not API_TOKEN:
+        return
+    token = req.headers.get('X-API-Key')
+    if token != API_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+def rate_limit(req: Request) -> None:
+    # Simple sliding-window limiter per IP+path for mutating endpoints
+    if RATE_LIMIT_MUTATIONS_PER_SEC <= 0:
+        return
+    key = f"{req.client.host}:{req.url.path}"
+    now = time.time()
+    bucket = _rate_buckets[key]
+    bucket.append(now)
+    one_sec_ago = now - 1.0
+    while bucket and bucket[0] < one_sec_ago:
+        bucket.popleft()
+    if len(bucket) > RATE_LIMIT_MUTATIONS_PER_SEC:
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+# -------------------------------
+# Metrics and Health
+# -------------------------------
+REQUESTS = defaultdict(int)
+EXECUTIONS = 0
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
+@app.get("/readyz")
+def readyz():
+    return {"running": controller.running}
+
+@app.get("/metrics")
+def metrics():
+    try:
+        lines = [
+            "# HELP app_requests_total Total HTTP requests by path",
+            "# TYPE app_requests_total counter",
+        ]
+        for path, cnt in REQUESTS.items():
+            lines.append(f'app_requests_total{{path="{path}"}} {cnt}')
+        lines += [
+            "# HELP app_executions_total Total executions emitted",
+            "# TYPE app_executions_total counter",
+            f"app_executions_total {EXECUTIONS}",
+        ]
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
 
 class WebSocketManager:
     def __init__(self) -> None:
@@ -899,6 +962,7 @@ def index() -> str:
             <button onclick="startOpenAuction()">Start Open Auction</button>
             <button onclick="startCloseAuction()">Start Close Auction</button>
             <button onclick="uncrossAuction()">Uncross Auction</button>
+            <button onclick="snapshotNow()">Snapshot Now</button>
           </div>
         </div>
       </div>
@@ -984,6 +1048,7 @@ def index() -> str:
       async function haltSymbol(){ await fetch('/api/halt', {method:'POST'}); }
       async function resumeSymbol(){ await fetch('/api/resume', {method:'POST'}); }
       async function toggleQueue(){ await fetch('/api/engine/queue-toggle', {method:'POST'}); }
+      async function snapshotNow(){ await fetch('/api/snapshot', {method:'POST'}); }
       async function addTrader(e){
         e.preventDefault();
         const form = new FormData(document.getElementById('addTraderForm'));
@@ -1147,8 +1212,9 @@ def index() -> str:
 
 
 @app.post("/api/start")
-def api_start(req: StartRequest):
+def api_start(req: StartRequest, r: Request):
     try:
+        rate_limit(r); require_api_key(r)
         # capture event loop for background WS notifications
         controller._loop = asyncio.get_event_loop()
         controller.start(req)
@@ -1158,7 +1224,8 @@ def api_start(req: StartRequest):
 
 
 @app.post("/api/stop")
-def api_stop():
+def api_stop(r: Request):
+    rate_limit(r); require_api_key(r)
     controller.stop()
     return {"status": "stopped"}
 
@@ -1167,7 +1234,9 @@ def api_stop():
 def api_state():
     return controller.snapshot()
 @app.post("/api/auction/start/{phase}")
-def api_start_auction(phase: str):
+def api_start_auction(phase: str, req: Request):
+    rate_limit(req)
+    require_api_key(req)
     if controller.engine is None:
         raise HTTPException(status_code=400, detail="Engine not running")
     if phase not in ("open", "close"):
@@ -1177,7 +1246,9 @@ def api_start_auction(phase: str):
 
 
 @app.post("/api/auction/uncross")
-def api_uncross_auction():
+def api_uncross_auction(req: Request):
+    rate_limit(req)
+    require_api_key(req)
     if controller.engine is None:
         raise HTTPException(status_code=400, detail="Engine not running")
     controller.engine.uncross_auction()
@@ -1185,7 +1256,9 @@ def api_uncross_auction():
 
 
 @app.post("/api/halt")
-def api_halt():
+def api_halt(req: Request):
+    rate_limit(req)
+    require_api_key(req)
     if controller.engine is None:
         raise HTTPException(status_code=400, detail="Engine not running")
     controller.engine.halt(controller.symbol)
@@ -1193,7 +1266,9 @@ def api_halt():
 
 
 @app.post("/api/resume")
-def api_resume():
+def api_resume(req: Request):
+    rate_limit(req)
+    require_api_key(req)
     if controller.engine is None:
         raise HTTPException(status_code=400, detail="Engine not running")
     controller.engine.resume(controller.symbol)
@@ -1201,7 +1276,9 @@ def api_resume():
 
 
 @app.post("/api/engine/queue-toggle")
-def api_queue_toggle():
+def api_queue_toggle(req: Request):
+    rate_limit(req)
+    require_api_key(req)
     if controller.engine is None:
         raise HTTPException(status_code=400, detail="Engine not running")
     try:
@@ -1216,7 +1293,9 @@ def api_queue_toggle():
 
 
 @app.post("/api/replay")
-def api_replay():
+def api_replay(req: Request):
+    rate_limit(req)
+    require_api_key(req)
     try:
         # Basic replay surface: parse events for visibility. Full deterministic rebuild can be added later.
         from trading_simulator_with_algorithmic_traders import EventLogger, ReplayRunner  # type: ignore
@@ -1227,6 +1306,21 @@ def api_replay():
         summary = runner.run()
         tca = logger.tca_summary()
         return {"events": evs[:100], "replay": summary, "tca": tca}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/snapshot")
+def api_snapshot(req: Request):
+    rate_limit(req)
+    require_api_key(req)
+    if controller.engine is None:
+        raise HTTPException(status_code=400, detail="Engine not running")
+    try:
+        out_dir = controller.config.log_dir if controller.config else '.logs'
+        controller.engine.snapshot_now()
+        # ensure background snapshotting running with default interval if configured later
+        return {"status": "ok"}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1251,7 +1345,8 @@ class AddTraderRequest(BaseModel):
 
 
 @app.post("/api/traders")
-def add_trader(req: AddTraderRequest):
+def add_trader(req: AddTraderRequest, r: Request):
+    rate_limit(r); require_api_key(r)
     try:
         tid = controller.add_trader(req.name, req.params)
         return {"id": tid}
@@ -1264,7 +1359,8 @@ class UpdateTraderRequest(BaseModel):
 
 
 @app.patch("/api/traders/{trader_id}")
-def update_trader(trader_id: str, req: UpdateTraderRequest):
+def update_trader(trader_id: str, req: UpdateTraderRequest, r: Request):
+    rate_limit(r); require_api_key(r)
     try:
         controller.update_trader(trader_id, req.params)
         return {"status": "ok"}
@@ -1273,7 +1369,8 @@ def update_trader(trader_id: str, req: UpdateTraderRequest):
 
 
 @app.delete("/api/traders/{trader_id}")
-def delete_trader(trader_id: str):
+def delete_trader(trader_id: str, r: Request):
+    rate_limit(r); require_api_key(r)
     try:
         controller.remove_trader(trader_id)
         return {"status": "deleted"}
@@ -1308,7 +1405,8 @@ class OptimizeRequest(BaseModel):
 
 
 @app.post("/api/optimize")
-def api_optimize(req: OptimizeRequest):
+def api_optimize(req: OptimizeRequest, r: Request):
+    rate_limit(r); require_api_key(r)
     try:
         controller.start_optimization(req.dict(exclude_none=True))
         return {"status": "started"}
@@ -1331,7 +1429,8 @@ class OrderRequest(BaseModel):
 
 
 @app.post("/api/order")
-def api_order(req: OrderRequest):
+def api_order(req: OrderRequest, r: Request):
+    rate_limit(r); require_api_key(r)
     if controller.engine is None:
         raise HTTPException(status_code=400, detail="Engine not running")
     sym = req.symbol or controller.symbol
@@ -1373,7 +1472,8 @@ class CancelOwnerRequest(BaseModel):
 
 
 @app.post("/api/cancel")
-def api_cancel(req: CancelRequest):
+def api_cancel(req: CancelRequest, r: Request):
+    rate_limit(r); require_api_key(r)
     if controller.engine is None:
         raise HTTPException(status_code=400, detail="Engine not running")
     try:
@@ -1384,7 +1484,8 @@ def api_cancel(req: CancelRequest):
 
 
 @app.post("/api/cancel/owner")
-def api_cancel_owner(req: CancelOwnerRequest):
+def api_cancel_owner(req: CancelOwnerRequest, r: Request):
+    rate_limit(r); require_api_key(r)
     if controller.engine is None:
         raise HTTPException(status_code=400, detail="Engine not running")
     try:
