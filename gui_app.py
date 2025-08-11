@@ -51,6 +51,8 @@ from trading_simulator_with_algorithmic_traders import (
     DECIMAL_PRECISION,
     INSTRUMENTS,
     PortfolioDispatcher,
+    MarketRouter,
+    Venue,
 )
 import asyncio
 import os
@@ -113,6 +115,9 @@ class StartRequest(BaseModel):
     custom_threshold: Optional[float] = None
     decimal_precision: Optional[Dict[str, int]] = None
     lot_size: Optional[Dict[str, int]] = None
+    snapshot_interval_sec: Optional[int] = 0
+    snapshot_dir: Optional[str] = None
+    venues: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 class TradingController:
@@ -126,6 +131,7 @@ class TradingController:
         self.engine: Optional[MatchingEngine] = None
         self.feed: Optional[MarketDataFeed] = None
         self.maker: Optional[MarketMaker] = None
+        self.router: Optional[MarketRouter] = None
         self.traders: Dict[str, Any] = {}
         self.trader_threads: Dict[str, threading.Thread] = {}
         self.fix_thread: Optional[threading.Thread] = None
@@ -243,6 +249,23 @@ class TradingController:
                 self.engine.tca_logger = self.logger  # type: ignore[attr-defined]
             except Exception:
                 pass
+            # Configure periodic snapshots if requested
+            try:
+                if int(req.snapshot_interval_sec or 0) > 0:
+                    out_dir = req.snapshot_dir or os.path.join(req.log_dir, 'snapshots')
+                    self.engine.start_snapshotting(int(req.snapshot_interval_sec or 0), out_dir)
+            except Exception:
+                pass
+            # Configure multi-venue router if venues provided
+            try:
+                if req.venues:
+                    self.router = MarketRouter()
+                    for name, cfg in req.venues.items():
+                        # For demo, use same engine per venue; in practice, separate engines per venue would be constructed
+                        v = Venue(name=name, engine=self.engine, fee_bps=float(cfg.get('fee_bps', 0.0)), latency_ms=int(cfg.get('latency_ms', 0)))
+                        self.router.add_venue(v)
+            except Exception:
+                self.router = None
             # Event logger for replay/snapshots
             try:
                 from trading_simulator_with_algorithmic_traders import EventLogger  # type: ignore
@@ -881,6 +904,8 @@ def index() -> str:
             <label>Owner Drawdown Limit (fraction, e.g., 0.2)</label><input name="risk_owner_drawdown_limit" placeholder="0.2"/>
             <label>Log Dir</label><input name="log_dir" value=".logs"/>
             <label>DB URI (optional)</label><input name="db_uri" placeholder="postgresql+psycopg2://user:pass@host/db"/>
+            <label>Snapshot Interval (sec)</label><input name="snapshot_interval_sec" value="0"/>
+            <label>Snapshot Dir</label><input name="snapshot_dir" placeholder=".logs/snapshots"/>
             <h4>Instrument Precision</h4>
             <label>Decimal Precision (per symbol JSON)</label>
             <textarea name="decimal_precision" placeholder='{"AAPL":2,"MSFT":4}' style="width:100%;height:60px;"></textarea>
@@ -913,6 +938,7 @@ def index() -> str:
             <label>Price</label><input name="price" placeholder="0 for market"/>
             <label>Quantity</label><input name="quantity" value="100"/>
             <label>Symbol</label><input name="symbol" placeholder="leave blank for session symbol"/>
+            <label>Route (use NBBO when venues set)</label><select name="route"><option value="engine">Engine</option><option value="router">Router</option></select>
             <label>TIF</label><select name="tif"><option value="GTC">GTC</option><option value="IOC">IOC</option><option value="FOK">FOK</option></select>
             <label>Post Only</label><select name="post_only"><option value="false">False</option><option value="true">True</option></select>
             <label>Owner</label><input name="owner_id" value="web"/>
@@ -1426,6 +1452,7 @@ class OrderRequest(BaseModel):
     expires_at: Optional[str] = None
     auction_only: Optional[bool] = False
     auction_phase: Optional[str] = None
+    route: Optional[str] = 'engine'
 
 
 @app.post("/api/order")
@@ -1458,7 +1485,10 @@ def api_order(req: OrderRequest, r: Request):
             auction_only=bool(req.auction_only),
             auction_phase=req.auction_phase,
         )
-        controller.engine.match_order(order)
+        if req.route == 'router' and controller.router is not None:
+            controller.router.route_order(order)
+        else:
+            controller.engine.match_order(order)
         return {"status": "accepted", "order_id": order.id}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))

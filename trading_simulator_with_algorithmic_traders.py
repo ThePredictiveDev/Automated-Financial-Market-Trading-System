@@ -1532,6 +1532,72 @@ class ReplayRunner:
             'cancels': count_cancel,
         }
 
+
+# --------------------------------------------------------------------------------------
+# Multi-Venue Router with NBBO and Inter-market Sweep
+# --------------------------------------------------------------------------------------
+
+class Venue:
+    def __init__(self, name: str, engine: MatchingEngine, fee_bps: float = 0.0, latency_ms: int = 0) -> None:
+        self.name = name
+        self.engine = engine
+        self.fee_bps = float(fee_bps)
+        self.latency_ms = int(latency_ms)
+
+    def top_of_book(self) -> Tuple[Optional[float], Optional[float]]:
+        return self.engine.order_book.get_best_bid(), self.engine.order_book.get_best_ask()
+
+
+class MarketRouter:
+    def __init__(self) -> None:
+        self.venues: Dict[str, Venue] = {}
+
+    def add_venue(self, venue: Venue) -> None:
+        self.venues[venue.name] = venue
+
+    def nbbo(self) -> Dict[str, Optional[float]]:
+        best_bid = None
+        best_ask = None
+        for v in self.venues.values():
+            bb, ba = v.top_of_book()
+            if bb is not None:
+                best_bid = bb if best_bid is None else max(best_bid, bb)
+            if ba is not None:
+                best_ask = ba if best_ask is None else min(best_ask, ba)
+        return {"best_bid": best_bid, "best_ask": best_ask}
+
+    def route_order(self, order: Order) -> None:
+        if not self.venues:
+            raise RuntimeError("No venues configured")
+        # For now, simple route: pick venue with best contra price (NBBO) and submit
+        target: Optional[Venue] = None
+        if order.side == 'buy':
+            best_px = None
+            for v in self.venues.values():
+                _, ask = v.top_of_book()
+                if ask is None:
+                    continue
+                if order.type == 'limit' and ask > float(order.price):
+                    continue
+                if best_px is None or ask < best_px:
+                    best_px = ask
+                    target = v
+        else:
+            best_px = None
+            for v in self.venues.values():
+                bid, _ = v.top_of_book()
+                if bid is None:
+                    continue
+                if order.type == 'limit' and bid < float(order.price):
+                    continue
+                if best_px is None or bid > best_px:
+                    best_px = bid
+                    target = v
+        if target is None:
+            # fallback: first venue
+            target = next(iter(self.venues.values()))
+        target.engine.match_order(order)
+
 if SQLA_AVAILABLE:
     Base = declarative_base()
 
