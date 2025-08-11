@@ -504,11 +504,29 @@ class MatchingEngine:
             self._last_trade_price_by_symbol[execution.symbol] = float(execution.price)
         except Exception:
             pass
+        # Event log with best bid/ask snapshot for TCA
+        try:
+            if self.event_logger is not None:
+                bb = self.order_book.get_best_bid()
+                ba = self.order_book.get_best_ask()
+                self.event_logger.log_execution(execution, best_bid=bb, best_ask=ba)
+        except Exception:
+            pass
         for cb in list(self._trade_subscribers):
             try:
                 cb(execution)
             except Exception as exc:
                 logging.exception("Trade subscriber error: %s", exc)
+        # TCA logging: slippage vs mid and last trade
+        try:
+            mid = self._mid_price()
+            last = self.get_last_trade_price(execution.symbol)
+            slip_mid = None if mid is None else ((execution.price - mid) / mid * 10000.0 if execution.side == 'buy' else (mid - execution.price) / mid * 10000.0)
+            slip_last = None if last is None or last == 0 else ((execution.price - last) / last * 10000.0 if execution.side == 'buy' else (last - execution.price) / last * 10000.0)
+            if hasattr(self, 'tca_logger') and getattr(self, 'tca_logger') is not None:
+                self.tca_logger.log_tca(execution.timestamp, execution.symbol, execution.side, float(execution.price), mid, last, slip_mid, slip_last)  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     def _reference_price(self, symbol: str) -> Optional[float]:
         if self.band_reference == 'last':
@@ -520,6 +538,13 @@ class MatchingEngine:
             return float((best_bid + best_ask) / 2.0)
         return self._last_trade_price_by_symbol.get(symbol)
 
+    def _mid_price(self) -> Optional[float]:
+        bb = self.order_book.get_best_bid()
+        ba = self.order_book.get_best_ask()
+        if bb is None or ba is None:
+            return None
+        return float((bb + ba) / 2.0)
+
     def _within_price_band(self, order: Order) -> bool:
         if self.price_band_bps <= 0 or order.type != 'limit':
             return True
@@ -528,6 +553,9 @@ class MatchingEngine:
             return True
         dev_bps = abs(order.price - ref) / ref * 10000.0
         return dev_bps <= self.price_band_bps
+
+    def get_last_trade_price(self, symbol: str) -> Optional[float]:
+        return self._last_trade_price_by_symbol.get(symbol)
 
     def _available_depth(self, side: str, limit_price: float) -> int:
         # Returns total opposing quantity available up to limit price for sweeping
@@ -929,11 +957,11 @@ class MatchingEngine:
                 logging.info(f"Consumed resting {resting.id} qty {consumed} at {price}; incoming left {order.quantity}")
 
         # Remove empty price level if queue depleted
-        if not queue:
-            try:
-                del counter_orders[price]
-            except KeyError:
-                pass
+            if not queue:
+                try:
+                    del counter_orders[price]
+                except KeyError:
+                    pass
             # Keep sorted price lists in sync
             try:
                 if counter_side == 'sell':
@@ -1106,7 +1134,11 @@ class RiskManager:
     """
 
     def __init__(self, portfolio: Portfolio, max_order_qty: int, max_symbol_position: int, max_gross_notional: float,
-                 min_order_qty: int = 1, lot_size: int = 1, round_lot_required: bool = False) -> None:
+                 min_order_qty: int = 1, lot_size: int = 1, round_lot_required: bool = False,
+                 order_rate_limit_per_sec: Optional[int] = None,
+                 owner_drawdown_limit: Optional[float] = None,
+                 owner_portfolios: Optional["PortfolioDispatcher"] = None,
+                 price_provider: Optional[Callable[[str], Optional[float]]] = None) -> None:
         self.portfolio = portfolio
         self.max_order_qty = int(max_order_qty)
         self.max_symbol_position = int(max_symbol_position)
@@ -1114,6 +1146,13 @@ class RiskManager:
         self.min_order_qty = int(max(1, min_order_qty))
         self.lot_size = int(max(1, lot_size))
         self.round_lot_required = bool(round_lot_required)
+        # Owner-aware extensions
+        self.order_rate_limit_per_sec = int(order_rate_limit_per_sec) if order_rate_limit_per_sec else None
+        self._owner_to_timestamps: Dict[str, Deque[float]] = {}
+        self.owner_drawdown_limit = float(owner_drawdown_limit) if owner_drawdown_limit is not None else None
+        self.owner_portfolios = owner_portfolios
+        self.price_provider = price_provider
+        self._owner_peak_equity: Dict[str, float] = {}
 
     def allow_order(self, order: Order) -> bool:
         # Check quantity bounds
@@ -1134,6 +1173,42 @@ class RiskManager:
         projected = pos + (order.quantity if order.side == 'buy' else -order.quantity)
         if abs(projected) > self.max_symbol_position:
             return False
+        # Rate limit per owner
+        if self.order_rate_limit_per_sec is not None:
+            owner = getattr(order, 'owner_id', 'default')
+            now = time.time()
+            dq = self._owner_to_timestamps.get(owner)
+            if dq is None:
+                dq = deque()
+                self._owner_to_timestamps[owner] = dq
+            dq.append(now)
+            # prune older than 1s
+            one_sec_ago = now - 1.0
+            while dq and dq[0] < one_sec_ago:
+                dq.popleft()
+            if len(dq) > self.order_rate_limit_per_sec:
+                return False
+        # Drawdown kill switch per owner (based on simple equity calc)
+        if self.owner_drawdown_limit is not None and self.owner_portfolios is not None and self.price_provider is not None:
+            owner = getattr(order, 'owner_id', 'default')
+            pf = self.owner_portfolios.get_portfolio(owner)
+            if pf is not None:
+                # Estimate equity = cash + sum(pos * price)
+                equity = float(pf.cash)
+                try:
+                    for sym, qty in pf.positions.items():
+                        px = self.price_provider(sym)
+                        if px is not None:
+                            equity += float(qty) * float(px)
+                except Exception:
+                    pass
+                peak = self._owner_peak_equity.get(owner, equity)
+                if equity > peak:
+                    peak = equity
+                    self._owner_peak_equity[owner] = peak
+                dd = 0.0 if peak <= 0 else (peak - equity) / peak
+                if dd > self.owner_drawdown_limit:
+                    return False
         return True
 
 
@@ -1149,6 +1224,7 @@ class CsvLogger:
         os.makedirs(self.base_dir, exist_ok=True)
         self.exec_path = os.path.join(self.base_dir, 'executions.csv')
         self.equity_path = os.path.join(self.base_dir, 'equity_curve.csv')
+        self.tca_path = os.path.join(self.base_dir, 'tca.csv')
         # Initialize headers if files do not exist
         if not os.path.exists(self.exec_path):
             with open(self.exec_path, 'w', encoding='utf-8') as f:
@@ -1156,6 +1232,9 @@ class CsvLogger:
         if not os.path.exists(self.equity_path):
             with open(self.equity_path, 'w', encoding='utf-8') as f:
                 f.write('timestamp,net_liquidation,realized_pnl,cash\n')
+        if not os.path.exists(self.tca_path):
+            with open(self.tca_path, 'w', encoding='utf-8') as f:
+                f.write('timestamp,symbol,side,price,mid,last_trade,slippage_mid_bps,slippage_last_bps\n')
 
     def log_execution(self, execu: Execution) -> None:
         try:
@@ -1172,6 +1251,14 @@ class CsvLogger:
                 f.write(f"{timestamp.isoformat()},{net_liq},{realized},{cash}\n")
         except Exception as exc:
             logging.warning("Failed to write equity log: %s", exc)
+
+    def log_tca(self, timestamp: pd.Timestamp, symbol: str, side: str, price: float, mid: Optional[float], last_trade: Optional[float],
+                slip_mid_bps: Optional[float], slip_last_bps: Optional[float]) -> None:
+        try:
+            with open(self.tca_path, 'a', encoding='utf-8') as f:
+                f.write(f"{timestamp.isoformat()},{symbol},{side},{price},{'' if mid is None else mid},{'' if last_trade is None else last_trade},{'' if slip_mid_bps is None else slip_mid_bps},{'' if slip_last_bps is None else slip_last_bps}\n")
+        except Exception as exc:
+            logging.debug("Failed to write TCA log: %s", exc)
 
 
 class EventLogger:
@@ -1199,12 +1286,38 @@ class EventLogger:
         except Exception as exc:
             logging.debug("Event log (cancel) skipped: %s", exc)
 
-    def log_execution(self, execu: "Execution") -> None:
+    def log_execution(self, execu: "Execution", best_bid: Optional[float] = None, best_ask: Optional[float] = None) -> None:
         try:
             with open(self.events_path, 'a', encoding='utf-8') as f:
-                f.write(f"{execu.timestamp.isoformat()},EXEC,{execu.taker_order_id},{execu.symbol},{execu.side},,${execu.price},{execu.quantity},maker={execu.maker_order_id}\n")
+                extra = []
+                if best_bid is not None:
+                    extra.append(f"bb={best_bid}")
+                if best_ask is not None:
+                    extra.append(f"ba={best_ask}")
+                extra.append(f"maker={execu.maker_order_id}")
+                f.write(f"{execu.timestamp.isoformat()},EXEC,{execu.taker_order_id},{execu.symbol},{execu.side},,{execu.price},{execu.quantity},{' '.join(extra)}\n")
         except Exception as exc:
             logging.debug("Event log (exec) skipped: %s", exc)
+
+    def replay(self) -> List[Dict[str, Any]]:
+        events: List[Dict[str, Any]] = []
+        try:
+            with open(self.events_path, 'r', encoding='utf-8') as f:
+                next(f, None)  # skip header
+                for line in f:
+                    parts = line.strip().split(',')
+                    if len(parts) < 3:
+                        continue
+                    ts, ev, oid = parts[0], parts[1], parts[2]
+                    events.append({
+                        'timestamp': ts,
+                        'event': ev,
+                        'order_id': oid,
+                        'raw': parts,
+                    })
+        except Exception:
+            pass
+        return events
 
 if SQLA_AVAILABLE:
     Base = declarative_base()
@@ -1951,7 +2064,7 @@ class NewsFetcher:
                     language='en',
                     sort_by='publishedAt',
                     page_size=5,
-                    timeout=self.timeout_seconds,
+                            timeout=self.timeout_seconds,
                 )
                 headlines = [article['title'] for article in all_articles.get('articles', [])]
                 return headlines

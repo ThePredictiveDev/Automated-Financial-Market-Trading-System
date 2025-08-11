@@ -103,6 +103,8 @@ class StartRequest(BaseModel):
     risk_min_order_qty: int = 1
     risk_lot_size: int = 1
     risk_round_lot_required: bool = False
+    risk_order_rate_limit_per_sec: Optional[int] = None
+    risk_owner_drawdown_limit: Optional[float] = None
     log_dir: str = ".logs"
     db_uri: Optional[str] = None
     custom_threshold: Optional[float] = None
@@ -233,6 +235,11 @@ class TradingController:
             self.engine.subscribe_trades(self._on_execution)
             self.logger = CsvLogger(req.log_dir)
             self.engine.subscribe_trades(self.logger.log_execution)
+            # Attach TCA logger to engine for slippage metrics
+            try:
+                self.engine.tca_logger = self.logger  # type: ignore[attr-defined]
+            except Exception:
+                pass
             # Event logger for replay/snapshots
             try:
                 from trading_simulator_with_algorithmic_traders import EventLogger  # type: ignore
@@ -267,6 +274,10 @@ class TradingController:
                 min_order_qty=req.risk_min_order_qty,
                 lot_size=req.risk_lot_size,
                 round_lot_required=bool(req.risk_round_lot_required),
+                order_rate_limit_per_sec=req.risk_order_rate_limit_per_sec,
+                owner_drawdown_limit=req.risk_owner_drawdown_limit,
+                owner_portfolios=self.portfolios,
+                price_provider=(lambda sym: (self.engine.get_last_trade_price(sym) or self.engine.order_book.get_best_bid() or self.engine.order_book.get_best_ask())) if self.engine else None,
             )
 
             if req.mode == "backtest":
@@ -519,14 +530,23 @@ class TradingController:
             best_ask = orderbook.get_best_ask() if orderbook else None  # type: ignore[union-attr]
             pos = self.portfolio.snapshot() if self.portfolio else {}
             owners = self.portfolios.snapshot_all() if self.portfolios else {}
+            depth = self.engine.depth_snapshot(5) if self.engine else {"bids":[],"asks":[]}
+            last_trade = self.engine.get_last_trade_price(self.symbol) if self.engine else None
+            engine_status = {
+                "use_queue": bool(self.engine.use_queue) if self.engine else False,
+                "halted": self.symbol in (self.engine._halted if self.engine else set()),
+            }
             return {
                 "running": self.running,
                 "mode": self.mode,
                 "symbol": self.symbol,
                 "best_bid": best_bid,
                 "best_ask": best_ask,
+                "last_trade": last_trade,
                 "portfolio": pos,
                 "owners": owners,
+                "depth": depth,
+                "engine": engine_status,
                 "last_executions": list(self.last_executions[-100:]),
                 "equity": list(self.equity_points[-500:]),
                 "active_traders": [
@@ -794,6 +814,8 @@ def index() -> str:
             <label>Risk Min Order Qty</label><input name="risk_min_order_qty" value="1"/>
             <label>Risk Lot Size</label><input name="risk_lot_size" value="1"/>
             <label>Round Lot Required</label><select name="risk_round_lot_required"><option value="false">False</option><option value="true">True</option></select>
+            <label>Rate Limit (orders/sec per owner)</label><input name="risk_order_rate_limit_per_sec" placeholder="e.g., 5"/>
+            <label>Owner Drawdown Limit (fraction, e.g., 0.2)</label><input name="risk_owner_drawdown_limit" placeholder="0.2"/>
             <label>Log Dir</label><input name="log_dir" value=".logs"/>
             <label>DB URI (optional)</label><input name="db_uri" placeholder="postgresql+psycopg2://user:pass@host/db"/>
             <h4>Instrument Precision</h4>
@@ -859,6 +881,16 @@ def index() -> str:
           <h3>Order Book</h3>
           <div>Best Bid: <span id="bestBid">-</span></div>
           <div>Best Ask: <span id="bestAsk">-</span></div>
+          <h4>Depth (Top 5)</h4>
+          <table>
+            <thead><tr><th colspan="2">Bids</th><th colspan="2">Asks</th></tr><tr><th>Px</th><th>Qty</th><th>Px</th><th>Qty</th></tr></thead>
+            <tbody id="depth"></tbody>
+          </table>
+          <div style="margin-top:8px; display:flex; gap:8px;">
+            <button onclick="haltSymbol()">Halt</button>
+            <button onclick="resumeSymbol()">Resume</button>
+            <button onclick="toggleQueue()">Toggle Queue</button>
+          </div>
           <div style="margin-top:8px; display:flex; gap:8px;">
             <button onclick="startOpenAuction()">Start Open Auction</button>
             <button onclick="startCloseAuction()">Start Close Auction</button>
@@ -879,6 +911,11 @@ def index() -> str:
           </table>
         </div>
         <div class="card">
+          <h3>TCA (latest)</h3>
+          <div>Last Trade: <span id="lastTrade">-</span></div>
+          <div>Engine Queue: <span id="engineQueue">-</span> | Halted: <span id="engineHalted">-</span></div>
+        </div>
+        <div class="card">
           <h3>Parameter Optimization</h3>
           <form id="optForm" onsubmit="startOpt(event)">
             <label>Trials</label><input name="trials" value="10"/>
@@ -896,6 +933,10 @@ def index() -> str:
             <div>Best params: <pre id="optParams" style="white-space:pre-wrap"></pre></div>
           </div>
         </div>
+        <div class="card">
+          <h3>Replay Events</h3>
+          <button onclick="replayEvents()">Replay events.csv</button>
+        </div>
       </div>
     </div>
 
@@ -912,6 +953,8 @@ def index() -> str:
         try { if(body.decimal_precision) body.decimal_precision = JSON.parse(body.decimal_precision); } catch(e) {}
         try { if(body.lot_size) body.lot_size = JSON.parse(body.lot_size); } catch(e) {}
         try { if(body.sessions) body.sessions = JSON.parse(body.sessions); } catch(e) {}
+        if(body.risk_order_rate_limit_per_sec==='') delete body.risk_order_rate_limit_per_sec;
+        if(body.risk_owner_drawdown_limit==='') delete body.risk_owner_drawdown_limit;
         if(body.custom_threshold === '') delete body.custom_threshold;
         const res = await fetch('/api/start', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
         if(!res.ok){ alert('Failed to start: '+await res.text()); return; }
@@ -934,6 +977,9 @@ def index() -> str:
       async function startOpenAuction(){ await fetch('/api/auction/start/open', {method:'POST'}); }
       async function startCloseAuction(){ await fetch('/api/auction/start/close', {method:'POST'}); }
       async function uncrossAuction(){ await fetch('/api/auction/uncross', {method:'POST'}); }
+      async function haltSymbol(){ await fetch('/api/halt', {method:'POST'}); }
+      async function resumeSymbol(){ await fetch('/api/resume', {method:'POST'}); }
+      async function toggleQueue(){ await fetch('/api/engine/queue-toggle', {method:'POST'}); }
       async function addTrader(e){
         e.preventDefault();
         const form = new FormData(document.getElementById('addTraderForm'));
@@ -944,6 +990,7 @@ def index() -> str:
         const j = await res.json(); if(!res.ok){ alert('Add trader failed: '+JSON.stringify(j)); return; }
         refresh();
       }
+      async function replayEvents(){ await fetch('/api/replay', {method:'POST'}); }
       async function deleteTrader(id){
         const res = await fetch(`/api/traders/${id}`, {method:'DELETE'});
         if(!res.ok){ alert('Delete failed'); return; }
@@ -1021,6 +1068,19 @@ def index() -> str:
         const s = await res.json();
         document.getElementById('bestBid').textContent = s.best_bid ?? '-';
         document.getElementById('bestAsk').textContent = s.best_ask ?? '-';
+        document.getElementById('lastTrade').textContent = s.last_trade ?? '-';
+        const eng = s.engine || {}; document.getElementById('engineQueue').textContent = String(!!eng.use_queue);
+        document.getElementById('engineHalted').textContent = String(!!eng.halted);
+        // Depth
+        const d = s.depth || {bids:[], asks:[]};
+        const rows = Math.max(d.bids.length||0, d.asks.length||0);
+        const dtb = document.getElementById('depth'); dtb.innerHTML='';
+        for(let i=0;i<rows;i++){
+          const b = d.bids[i] || [null,null]; const a = d.asks[i] || [null,null];
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${b[0]??''}</td><td>${b[1]??''}</td><td>${a[0]??''}</td><td>${a[1]??''}</td>`;
+          dtb.appendChild(tr);
+        }
         if(s.portfolio){
           document.getElementById('cash').textContent = s.portfolio.cash?.toFixed(2) ?? 0;
           document.getElementById('realized').textContent = s.portfolio.realized_pnl?.toFixed(2) ?? 0;
@@ -1111,6 +1171,49 @@ def api_uncross_auction():
         raise HTTPException(status_code=400, detail="Engine not running")
     controller.engine.uncross_auction()
     return {"status": "uncrossed"}
+
+
+@app.post("/api/halt")
+def api_halt():
+    if controller.engine is None:
+        raise HTTPException(status_code=400, detail="Engine not running")
+    controller.engine.halt(controller.symbol)
+    return {"status": "halted", "symbol": controller.symbol}
+
+
+@app.post("/api/resume")
+def api_resume():
+    if controller.engine is None:
+        raise HTTPException(status_code=400, detail="Engine not running")
+    controller.engine.resume(controller.symbol)
+    return {"status": "resumed", "symbol": controller.symbol}
+
+
+@app.post("/api/engine/queue-toggle")
+def api_queue_toggle():
+    if controller.engine is None:
+        raise HTTPException(status_code=400, detail="Engine not running")
+    try:
+        controller.engine.use_queue = not bool(controller.engine.use_queue)
+        if controller.engine.use_queue:
+            controller.engine.start_loop()
+        else:
+            controller.engine.stop_loop()
+        return {"use_queue": bool(controller.engine.use_queue)}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/replay")
+def api_replay():
+    try:
+        # Basic replay surface: parse events for visibility. Full deterministic rebuild can be added later.
+        from trading_simulator_with_algorithmic_traders import EventLogger  # type: ignore
+        logger = EventLogger(controller.config.log_dir if controller.config else '.logs')
+        evs = logger.replay()
+        return {"events": evs[:100]}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 
