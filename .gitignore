@@ -1,0 +1,54 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+*.so
+
+# Packaging
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+.build/
+
+# Environments
+.venv/
+venv/
+ENV/
+.python-version
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and caches
+logs/
+*.log
+.cache/
+*.sqlite
+
+# Data artifacts
+*.parquet
+*.feather
+*.csv
+*.tsv
+*.jsonl
+
+# Project specific
+.logs/
+*yfinance_cache*
+
+# Model artifacts
+*.keras
+*.h5
