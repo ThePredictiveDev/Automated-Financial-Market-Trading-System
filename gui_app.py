@@ -862,6 +862,10 @@ def index() -> str:
             <label>Cancel Order ID</label><input name="order_id"/>
             <button type="submit">Cancel</button>
           </form>
+          <form id="cancelOwnerForm" onsubmit="cancelOwner(event)">
+            <label>Cancel by Owner</label><input name="owner_id" placeholder="owner id"/>
+            <button type="submit">Cancel Owner Orders</button>
+          </form>
         </div>
         <div class="card">
           <h3>Portfolio</h3>
@@ -1023,6 +1027,13 @@ def index() -> str:
         const body = {order_id: form.get('order_id')};
         const res = await fetch('/api/cancel', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
         const j = await res.json(); if(!res.ok){ alert('Cancel failed: '+JSON.stringify(j)); }
+      }
+      async function cancelOwner(e){
+        e.preventDefault();
+        const form = new FormData(document.getElementById('cancelOwnerForm'));
+        const body = {owner_id: form.get('owner_id')};
+        const res = await fetch('/api/cancel/owner', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+        const j = await res.json(); if(!res.ok){ alert('Cancel owner failed: '+JSON.stringify(j)); }
       }
       async function startOpt(e){
         e.preventDefault();
@@ -1208,10 +1219,14 @@ def api_queue_toggle():
 def api_replay():
     try:
         # Basic replay surface: parse events for visibility. Full deterministic rebuild can be added later.
-        from trading_simulator_with_algorithmic_traders import EventLogger  # type: ignore
+        from trading_simulator_with_algorithmic_traders import EventLogger, ReplayRunner  # type: ignore
         logger = EventLogger(controller.config.log_dir if controller.config else '.logs')
         evs = logger.replay()
-        return {"events": evs[:100]}
+        # Run deterministic rebuild in a lightweight engine
+        runner = ReplayRunner(evs)
+        summary = runner.run()
+        tca = logger.tca_summary()
+        return {"events": evs[:100], "replay": summary, "tca": tca}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1352,6 +1367,9 @@ def api_order(req: OrderRequest):
 
 class CancelRequest(BaseModel):
     order_id: str
+class CancelOwnerRequest(BaseModel):
+    owner_id: str
+
 
 
 @app.post("/api/cancel")
@@ -1361,6 +1379,17 @@ def api_cancel(req: CancelRequest):
     try:
         controller.engine.cancel_order(req.order_id)
         return {"status": "cancelled", "order_id": req.order_id}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/cancel/owner")
+def api_cancel_owner(req: CancelOwnerRequest):
+    if controller.engine is None:
+        raise HTTPException(status_code=400, detail="Engine not running")
+    try:
+        count = controller.engine.cancel_orders_by_owner(req.owner_id)
+        return {"status": "cancelled", "owner_id": req.owner_id, "count": count}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

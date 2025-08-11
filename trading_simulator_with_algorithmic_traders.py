@@ -416,6 +416,23 @@ class OrderBook:
         else:
             logging.warning(f"Order {order_id} not found for cancellation.")
 
+    def cancel_orders_by_owner(self, owner_id: str) -> int:
+        to_cancel: List[str] = []
+        for oid, order in list(self.order_map.items()):
+            try:
+                if getattr(order, 'owner_id', None) == owner_id:
+                    to_cancel.append(oid)
+            except Exception:
+                pass
+        count = 0
+        for oid in to_cancel:
+            try:
+                self.cancel_order(oid)
+                count += 1
+            except Exception:
+                pass
+        return count
+
     def modify_order(self, order_id: str, new_quantity: Optional[int] = None, new_price: Optional[float] = None) -> None:
         if order_id not in self.order_map:
             logging.warning(f"Order {order_id} not found for modification.")
@@ -819,6 +836,10 @@ class MatchingEngine:
                     self.event_logger.log_cancel(order_id)
             except Exception:
                 pass
+
+    def cancel_orders_by_owner(self, owner_id: str) -> int:
+        with self._lock:
+            return self.order_book.cancel_orders_by_owner(owner_id)
 
     def _match_buy_order(self, order: Order) -> None:
         # For market orders, treat limit as infinite to cross all available asks
@@ -1309,15 +1330,137 @@ class EventLogger:
                     if len(parts) < 3:
                         continue
                     ts, ev, oid = parts[0], parts[1], parts[2]
+                    # Parse common fields
+                    symbol = parts[3] if len(parts) > 3 else ''
+                    side = parts[4] if len(parts) > 4 else ''
+                    typ = parts[5] if len(parts) > 5 else ''
+                    price = float(parts[6]) if len(parts) > 6 and parts[6] else None
+                    qty = int(float(parts[7])) if len(parts) > 7 and parts[7] else None
+                    extra = parts[8] if len(parts) > 8 else ''
+                    extras: Dict[str, str] = {}
+                    if extra:
+                        try:
+                            for kv in extra.split():
+                                if '=' in kv:
+                                    k, v = kv.split('=', 1)
+                                    extras[k] = v
+                        except Exception:
+                            pass
                     events.append({
                         'timestamp': ts,
                         'event': ev,
                         'order_id': oid,
+                        'symbol': symbol,
+                        'side': side,
+                        'type': typ,
+                        'price': price,
+                        'quantity': qty,
+                        'extra': extras,
                         'raw': parts,
                     })
         except Exception:
             pass
         return events
+
+    def tca_summary(self) -> Dict[str, Any]:
+        # Compute adverse selection (next exec direction) and average slippage from events
+        evs = self.replay()
+        execs: List[Dict[str, Any]] = [e for e in evs if e.get('event') == 'EXEC']
+        # Sort by timestamp string (ISO) which should be sortable
+        try:
+            execs.sort(key=lambda e: e.get('timestamp', ''))
+        except Exception:
+            pass
+        total = len(execs)
+        adverse = 0
+        slip_sum = 0.0
+        slip_count = 0
+        for i, e in enumerate(execs):
+            try:
+                price = float(e.get('price') or e['raw'][6]) if e.get('price') is not None else float(e['raw'][6])
+            except Exception:
+                continue
+            # slippage vs mid not reconstructible here reliably; use successive execs per symbol for adverse
+            sym = e.get('symbol', '')
+            side = e.get('side', '')
+            # find next exec for same symbol
+            nxt_price = None
+            for j in range(i + 1, len(execs)):
+                if execs[j].get('symbol') == sym:
+                    try:
+                        nxt_price = float(execs[j].get('price') or execs[j]['raw'][6])
+                    except Exception:
+                        nxt_price = None
+                    break
+            if nxt_price is None:
+                continue
+            move = nxt_price - price
+            if (side == 'buy' and move < 0) or (side == 'sell' and move > 0):
+                adverse += 1
+        return {
+            'executions': total,
+            'adverse_count': adverse,
+            'adverse_rate': (adverse / total) if total > 0 else 0.0,
+            'slippage_avg_bps': (slip_sum / slip_count) if slip_count > 0 else None,
+        }
+
+
+class ReplayRunner:
+    """Deterministically rebuild an engine/book from events.csv NEW/CANCEL entries."""
+
+    def __init__(self, events: List[Dict[str, Any]]) -> None:
+        self.events = events
+
+    def run(self) -> Dict[str, Any]:
+        order_book = OrderBook()
+        engine = MatchingEngine(order_book)
+        engine.slippage_bps_per_100_shares = 0.0
+        engine.latency_ms = 0
+        # Disable price band
+        engine.price_band_bps = 0.0
+        # Minimal portfolio/logger to consume events
+        portfolio = Portfolio(initial_cash=0.0, fee_bps=0.0)
+        csv_logger = CsvLogger(_ensure_cache_dir())
+        engine.subscribe_trades(portfolio.on_execution)
+        engine.subscribe_trades(csv_logger.log_execution)
+        count_new = 0
+        count_cancel = 0
+        for e in self.events:
+            try:
+                ts = pd.to_datetime(e.get('timestamp'), utc=True, errors='coerce')
+                if isinstance(ts, pd.Timestamp) and ts.tzinfo is None:
+                    ts = ts.tz_localize('UTC')
+                if isinstance(ts, pd.Timestamp):
+                    engine.set_time(ts)
+            except Exception:
+                pass
+            ev = e.get('event')
+            if ev == 'NEW':
+                try:
+                    order = Order(
+                        id=str(e.get('order_id')),
+                        symbol=str(e.get('symbol')),
+                        side=str(e.get('side')),
+                        type=str(e.get('type') or 'limit'),
+                        price=float(e.get('price') or 0.0),
+                        quantity=int(e.get('quantity') or 0),
+                        owner_id=e.get('extra', {}).get('owner', 'replay'),
+                    )
+                    engine.match_order(order)
+                    count_new += 1
+                except Exception:
+                    pass
+            elif ev == 'CANCEL':
+                try:
+                    engine.cancel_order(str(e.get('order_id')))
+                    count_cancel += 1
+                except Exception:
+                    pass
+            # Ignore EXEC in input; engine will generate its own
+        return {
+            'orders': count_new,
+            'cancels': count_cancel,
+        }
 
 if SQLA_AVAILABLE:
     Base = declarative_base()
