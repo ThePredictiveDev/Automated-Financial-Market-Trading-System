@@ -2,9 +2,9 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen.svg)](https://github.com/yourusername/Automated-Financial-Market-Trading-System)
+[![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen.svg)](https://github.com/ThePredictiveDev/Automated-Financial-Market-Trading-System)
 [![Contributions](https://img.shields.io/badge/Contributions-Welcome-orange.svg)](CONTRIBUTING.md)
-[![Issues](https://img.shields.io/badge/Issues-Open-red.svg)](https://github.com/yourusername/Automated-Financial-Market-Trading-System/issues)
+[![Issues](https://img.shields.io/badge/Issues-Open-red.svg)](https://github.com/ThePredictiveDev/Automated-Financial-Market-Trading-System/issues)
 
 > **A comprehensive, production-ready algorithmic trading system with real-time market data, multiple trading strategies, risk management, and advanced backtesting capabilities.**
 
@@ -20,6 +20,7 @@
 - [📦 Installation](#-installation)
 - [⚡ Quick Start](#-quick-start)
 - [🔧 Usage Modes](#-usage-modes)
+- [🧭 Interactive CLI (No-Flags Guided Mode)](#-interactive-cli-no-flags-guided-mode)
 - [📊 Trading Strategies](#-trading-strategies)
 - [🛡️ Risk Management](#️-risk-management)
 - [📈 Backtesting](#-backtesting)
@@ -181,18 +182,11 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Advanced Installation with Optional Dependencies
+### Full Installation (all features)
 
 ```bash
-# Install with all optional dependencies for full functionality
-pip install -r requirements-full.txt
-
-# Or install specific components
-pip install trading-simulator[mlflow]      # MLflow integration
-pip install trading-simulator[optuna]      # Parameter optimization
-pip install trading-simulator[postgresql]  # Database support
-pip install trading-simulator[redis]       # Redis caching
-pip install trading-simulator[kafka]       # Event streaming
+# Install all features (core + optional integrations)
+pip install -r requirements.txt
 ```
 
 ### Environment Setup
@@ -205,7 +199,7 @@ cp .env.example .env
 nano .env
 ```
 
-**Key Environment Variables:**
+**Key Environment Variables (placeholders):**
 ```bash
 # API Keys (Optional)
 NEWS_API_KEY=your_news_api_key_here
@@ -323,6 +317,39 @@ Interactive order book demonstration:
 ```bash
 python trading_simulator_with_algorithmic_traders.py --mode demo
 ```
+
+## 🧭 Interactive CLI (No-Flags Guided Mode)
+
+Prefer prompts over flags? Just run without arguments:
+
+```bash
+python trading_simulator_with_algorithmic_traders.py
+```
+
+### What you can configure interactively
+- Mode: Backtest, Live, Replay, Demo (and an Advanced mode for manual flag entry)
+- Symbols and date ranges (Backtest/Replay)
+- Market data interval (Live) and replay pacing (Replay)
+- Built-in trader parameters (Momentum/EMA/Swing)
+- Market microstructure: slippage, latency
+- Matching protections: price band (bps), reference (mid/last), taker fee, maker rebate
+- Engine: submission queue on/off + queue size, order-book snapshots (interval + dir)
+- Risk manager: min/round lots, max qty/position/notional, order rate limit, drawdown limit, volatility halt, leverage, per-symbol gross exposure
+- Custom traders: add any number of `module:ClassName` with JSON params
+- Reporting & experiments: export HTML report, Optuna trials, MLflow tracking
+
+Each prompt includes short tips to help you choose sensible values.
+
+### Custom traders via prompts
+- When asked “Add custom traders?” choose Yes and enter:
+  - Trader spec: `yourpkg.strats:MyTrader`
+  - JSON params: `{"lookback": 20, "interval": 0.0, "owner_id": "mytrader"}`
+- Repeat to add multiple strategies. The system dynamically imports, instantiates, and wires them into the live/backtest pipeline.
+
+### Optuna, MLflow, and TCA
+- Optuna: enable and set trials; optionally configure MLflow URI and experiment name for tracking
+- TCA: enabled automatically; slippage/adverse selection written to `tca.csv` and `tca_adv.csv`
+
 
 ## 📊 Trading Strategies
 
@@ -472,6 +499,17 @@ class MyCustomTrader(AlgorithmicTrader):
 ```
 
 ## 🛡️ Risk Management
+### Configure All Risk Controls Interactively
+Run the script with no flags and choose to customize risk when prompted. You can set:
+- Position/Notional Limits: max order qty, max net position per symbol, max gross notional per order
+- Lot Rules: min order qty, lot size, round-lot required
+- Rate Limiting: per-owner order rate limit (orders/sec)
+- Drawdown Protection: per-owner drawdown limit (fraction)
+- Volatility Halts: window length and |z| threshold
+- Leverage & Exposure: max leverage and per-symbol gross exposure
+
+All values are validated and applied immediately to the pre-trade risk checks.
+
 
 ### Position Limits
 ```python
@@ -485,6 +523,116 @@ risk_manager = RiskManager(
     round_lot_required=False      # Round lot requirement
 )
 ```
+
+#### Example Custom Traders (Ready to Use)
+
+Create a module like `examples/strats.py` with:
+
+```python
+from collections import deque
+import uuid
+from trading_simulator_with_algorithmic_traders import AlgorithmicTrader, Order
+
+class BreakoutTrader(AlgorithmicTrader):
+    def __init__(self, symbol, matching_engine, lookback=20, band_bps=5, interval=0.0, owner_id='breakout'):
+        super().__init__(symbol, matching_engine, interval)
+        self.lookback = int(lookback)
+        self.band_bps = float(band_bps)
+        self.owner_id = str(owner_id)
+        self.buf = deque(maxlen=max(3, self.lookback))
+
+    def on_market_data(self, data):
+        super().on_market_data(data)
+        self.buf.append(float(data['price']))
+
+    def trade(self):
+        if self.current_price is None or len(self.buf) < self.lookback:
+            return
+        hi = max(self.buf)
+        lo = min(self.buf)
+        band = self.current_price * (self.band_bps / 10000.0)
+        ob = self.matching_engine.order_book
+        best_ask = ob.get_best_ask()
+        best_bid = ob.get_best_bid()
+        if best_ask is None or best_bid is None:
+            return
+        if self.current_price > hi + band:
+            o = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id=self.owner_id)
+            self.matching_engine.match_order(o)
+        elif self.current_price < lo - band:
+            o = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id=self.owner_id)
+            self.matching_engine.match_order(o)
+
+class MeanRevTrader(AlgorithmicTrader):
+    def __init__(self, symbol, matching_engine, lookback=20, z_entry=1.0, interval=0.0, owner_id='meanrev'):
+        super().__init__(symbol, matching_engine, interval)
+        self.lookback = int(lookback)
+        self.z_entry = float(z_entry)
+        self.owner_id = str(owner_id)
+        self.buf = deque(maxlen=max(3, self.lookback))
+
+    def on_market_data(self, data):
+        super().on_market_data(data)
+        self.buf.append(float(data['price']))
+
+    def trade(self):
+        import numpy as np
+        if self.current_price is None or len(self.buf) < self.lookback:
+            return
+        arr = np.array(self.buf, dtype=float)
+        sma = float(arr.mean())
+        std = float(arr.std(ddof=0))
+        if std <= 0:
+            return
+        z = (self.current_price - sma) / std
+        ob = self.matching_engine.order_book
+        best_ask = ob.get_best_ask()
+        best_bid = ob.get_best_bid()
+        if best_ask is None or best_bid is None:
+            return
+        if z <= -self.z_entry:
+            o = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id=self.owner_id)
+            self.matching_engine.match_order(o)
+        elif z >= self.z_entry:
+            o = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id=self.owner_id)
+            self.matching_engine.match_order(o)
+```
+
+Add them interactively when prompted by specifying `examples.strats:BreakoutTrader` or `examples.strats:MeanRevTrader` and providing JSON parameters.
+
+### Building Custom Traders (Detailed)
+
+Custom traders must subclass `AlgorithmicTrader` and implement `trade()` (optional `on_market_data`). Constructor signature should be:
+
+```python
+def __init__(self, symbol: str, matching_engine: MatchingEngine, **params):
+    super().__init__(symbol, matching_engine, interval=params.get('interval', 0.0))
+```
+
+They submit orders through `matching_engine.match_order(Order(...))`. Use `owner_id` to segment PnL and risk by strategy.
+
+#### Integration Pipeline
+- Market data tick → your trader’s `on_market_data` → your `trade()` → create `Order` → risk checks → matching → `executions.csv`/TCA → owner-aware Portfolio → `equity_curve.csv`
+- The system tracks adverse selection and slippage automatically.
+
+#### Adding Custom Traders Interactively
+1. Run `python trading_simulator_with_algorithmic_traders.py` with no flags
+2. Choose a mode (Backtest/Replay/Live)
+3. When prompted “Add custom traders?”
+   - Enter `module.path:ClassName`
+   - Provide JSON params, e.g. `{ "lookback": 20, "interval": 0.0, "owner_id": "mytrader" }`
+4. Repeat to add more; leave blank to continue.
+
+Example (Backtest):
+- Add `mypkg.strats:BreakoutTrader` with `{ "lookback": 15, "band_bps": 8, "owner_id": "bo15" }`
+- Add `mypkg.strats:MeanRevTrader` with `{ "lookback": 30, "z_entry": 1.25, "owner_id": "mr30" }`
+
+#### Best Practices
+- Cross at best bid/ask for immediate fills when you want action; use resting orders deliberately
+- Use small `interval` or `0.0` in backtests for per-bar evaluation
+- Set a unique `owner_id` per strategy for clean PnL/risk isolation
+- Keep code non-blocking; do not sleep inside `trade()`
+
 
 ### Rate Limiting
 ```python
@@ -812,6 +960,16 @@ logging:
 ```
 
 ## 📊 Performance Analytics
+### Periodic Metrics During Runs
+The system prints rolling metrics during Replay and at the end of Backtest/Live runs:
+- Net Liq, Cash, Realized PnL
+- Sharpe (ann), Sortino (ann), Volatility (ann)
+- Current and Maximum Drawdown, CAGR
+- Trades, Buys, Sells, Total Notional, Avg Trade Qty
+- Average Slippage vs Mid (bps), Adverse Selection Rate
+
+These are computed from `equity_curve.csv`, `executions.csv`, `tca.csv`, and `tca_adv.csv` in your chosen log directory.
+
 
 ### Performance Metrics
 ```python
@@ -922,7 +1080,7 @@ isort trading_simulator/
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License © 2025 Devansh Garg - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
@@ -937,27 +1095,24 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Documentation**: [Wiki](https://github.com/yourusername/Automated-Financial-Market-Trading-System/wiki)
-- **Issues**: [GitHub Issues](https://github.com/yourusername/Automated-Financial-Market-Trading-System/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/Automated-Financial-Market-Trading-System/discussions)
-- **Email**: support@trading-system.com
+- **Issues**: [GitHub Issues](https://github.com/ThePredictiveDev/Automated-Financial-Market-Trading-System/issues)
 
 ---
 
 <div align="center">
   <p>Made with ❤️ by the Trading System Team</p>
   <p>
-    <a href="https://github.com/yourusername/Automated-Financial-Market-Trading-System/stargazers">
-      <img src="https://img.shields.io/github/stars/yourusername/Automated-Financial-Market-Trading-System" alt="Stars">
+    <a href="https://github.com/ThePredictiveDev/Automated-Financial-Market-Trading-System/stargazers">
+      <img src="https://img.shields.io/github/stars/ThePredictiveDev/Automated-Financial-Market-Trading-System" alt="Stars">
     </a>
-    <a href="https://github.com/yourusername/Automated-Financial-Market-Trading-System/network">
-      <img src="https://img.shields.io/github/forks/yourusername/Automated-Financial-Market-Trading-System" alt="Forks">
+    <a href="https://github.com/ThePredictiveDev/Automated-Financial-Market-Trading-System/network">
+      <img src="https://img.shields.io/github/forks/ThePredictiveDev/Automated-Financial-Market-Trading-System" alt="Forks">
     </a>
-    <a href="https://github.com/yourusername/Automated-Financial-Market-Trading-System/issues">
-      <img src="https://img.shields.io/github/issues/yourusername/Automated-Financial-Market-Trading-System" alt="Issues">
+    <a href="https://github.com/ThePredictiveDev/Automated-Financial-Market-Trading-System/issues">
+      <img src="https://img.shields.io/github/issues/ThePredictiveDev/Automated-Financial-Market-Trading-System" alt="Issues">
     </a>
-    <a href="https://github.com/yourusername/Automated-Financial-Market-Trading-System/blob/main/LICENSE">
-      <img src="https://img.shields.io/github/license/yourusername/Automated-Financial-Market-Trading-System" alt="License">
+    <a href="https://github.com/ThePredictiveDev/Automated-Financial-Market-Trading-System/blob/main/LICENSE">
+      <img src="https://img.shields.io/github/license/ThePredictiveDev/Automated-Financial-Market-Trading-System" alt="License">
     </a>
   </p>
 </div>

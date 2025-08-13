@@ -3537,6 +3537,39 @@ def main() -> None:
     if len(sys.argv) == 1:
         try:
             print("\n=== Trading Simulator (Guided CLI) ===\n")
+            # Helpers
+            def _yes(prompt: str, default: str = 'n') -> bool:
+                ans = input(f"{prompt} [y/N]: ").strip().lower()
+                if not ans:
+                    ans = default.lower()
+                return ans in ('y', 'yes')
+
+            def _ask(prompt: str, default: Optional[str] = None) -> str:
+                hint = f" (default {default})" if default is not None else ''
+                val = input(f"{prompt}{hint}: ").strip()
+                return val if val else ('' if default is None else str(default))
+
+            def _ask_int(prompt: str, default: Optional[int] = None) -> str:
+                while True:
+                    s = _ask(prompt, None if default is None else str(default))
+                    if s == '' and default is None:
+                        return ''
+                    try:
+                        int(s)
+                        return s
+                    except Exception:
+                        print("Please enter an integer.")
+
+            def _ask_float(prompt: str, default: Optional[float] = None) -> str:
+                while True:
+                    s = _ask(prompt, None if default is None else str(default))
+                    if s == '' and default is None:
+                        return ''
+                    try:
+                        float(s)
+                        return s
+                    except Exception:
+                        print("Please enter a number.")
             # 1) Choose mode
             print("Select a mode:\n  1) Backtest (historical)\n  2) Live (streaming)\n  3) Replay (historical live-backtest)\n  4) Demo (simple order-book controls)\n  5) Advanced (full control)\n")
             mode_choice = input("Enter choice [1-4]: ").strip() or '1'
@@ -3550,7 +3583,7 @@ def main() -> None:
                 symbols = multi if multi else None
                 start = input("Start date [YYYY-MM-DD] (default 2023-01-01): ").strip() or '2023-01-01'
                 end = input("End date [YYYY-MM-DD] (default 2023-12-31): ").strip() or '2023-12-31'
-                enable_tr = (input("Enable built-in traders? [y/N]: ").strip().lower() == 'y')
+                enable_tr = _yes("Enable built-in traders?")
                 log_dir = input("Log directory (default .logs): ").strip() or '.logs'
                 seed = input("Seed (leave blank for none): ").strip()
                 args_list = [
@@ -3561,30 +3594,264 @@ def main() -> None:
                     args_list += ['--symbols', symbols]
                 if enable_tr:
                     args_list += ['--enable-traders']
+                # Built-in trader params
+                if enable_tr and _yes("Customize built-in trader parameters (momentum/EMA/swing)?"):
+                    print("Tip: Keep windows small for short samples (e.g., 2-3).")
+                    mlb = _ask_int("Momentum lookback", 5)
+                    sew = _ask_int("EMA short window", 5)
+                    lew = _ask_int("EMA long window", 20)
+                    sup = _ask_float("Swing support", 100.0)
+                    res = _ask_float("Swing resistance", 200.0)
+                    args_list += ['--momentum-lookback', mlb, '--ema-short-window', sew, '--ema-long-window', lew, '--swing-support', sup, '--swing-resistance', res]
                 if seed:
                     args_list += ['--seed', seed]
+                # Market microstructure
+                if _yes("Customize market microstructure (slippage/latency)?"):
+                    print("Tip: Slippage is bps per 100 shares in backtests; latency is ms of order delay.")
+                    slp = _ask_float("Slippage (bps per 100)", 0.0)
+                    lat = _ask_int("Latency (ms)", 0)
+                    args_list += ['--slippage-bps-per-100', slp, '--latency-ms', lat]
+                # Matching engine protections
+                if _yes("Customize matching protections (band/fees/queue/snapshots)?"):
+                    print("Tip: Price band is bps around reference price to reject outliers.")
+                    pbb = _ask_float("Price band (bps, 0 disables)", 0.0)
+                    brf = (_ask("Band reference [mid|last]", 'mid') or 'mid')
+                    tkr = _ask_float("Taker fee (bps)", 0.0)
+                    mkr = _ask_float("Maker rebate (bps)", 0.0)
+                    useq = _yes("Enable submission queue?")
+                    qmax = _ask_int("Queue max (orders)", 10000) if useq else ''
+                    snapi = _ask_int("Snapshot interval sec (0 disables)", 0)
+                    snapd = _ask("Snapshot dir (blank to disable)", '')
+                    args_list += ['--price-band-bps', pbb, '--band-reference', brf, '--taker-fee-bps', tkr, '--maker-rebate-bps', mkr]
+                    if useq:
+                        args_list += ['--use-queue', '--queue-max', qmax]
+                    if snapi and snapi != '0' and snapd:
+                        args_list += ['--snapshot-interval-sec', snapi, '--snapshot-dir', snapd]
+                # Risk manager
+                if _yes("Customize risk manager (qty, exposure, volatility, leverage)?"):
+                    print("Tip: Set reasonable caps to prevent runaway positions in tests.")
+                    rmaxq = _ask_int("Max order qty", 1000)
+                    rmaxp = _ask_int("Max net position per symbol", 10000)
+                    rmaxn = _ask_float("Max gross notional per order", 5_000_000.0)
+                    rminq = _ask_int("Min order qty", 1)
+                    rlot = _ask_int("Lot size", 1)
+                    rrl = _yes("Require round lots?")
+                    rrate = _ask_int("Order rate limit (orders/sec, blank none)", None)
+                    rdd = _ask_float("Owner drawdown limit (fraction, blank none)", None)
+                    rvolw = _ask_int("Volatility window", 20)
+                    rvolz = _ask_float("Volatility halt |z| (blank none)", None)
+                    rlev = _ask_float("Max leverage (blank none)", None)
+                    rsymgross = _ask_float("Max symbol gross exposure (blank none)", None)
+                    args_list += ['--risk-max-order-qty', rmaxq, '--risk-max-symbol-position', rmaxp, '--risk-max-gross-notional', rmaxn, '--risk-min-order-qty', rminq, '--risk-lot-size', rlot]
+                    if rrl:
+                        args_list += ['--risk-round-lot-required']
+                    if rrate:
+                        args_list += ['--risk-order-rate-limit', rrate]
+                    if rdd:
+                        args_list += ['--risk-owner-drawdown-limit', rdd]
+                    args_list += ['--risk-volatility-window', rvolw]
+                    if rvolz:
+                        args_list += ['--risk-volatility-halt-z', rvolz]
+                    if rlev:
+                        args_list += ['--risk-max-leverage', rlev]
+                    if rsymgross:
+                        args_list += ['--risk-max-symbol-gross-exposure', rsymgross]
+                # Custom traders
+                if _yes("Add custom traders (module:ClassName + JSON params)?"):
+                    print("Tip: Your class should subclass AlgorithmicTrader(symbol, matching_engine, **params).")
+                    while True:
+                        spec = _ask("Trader spec module:ClassName (blank to stop)", '')
+                        if not spec:
+                            break
+                        params = _ask("JSON params for this trader", '{}')
+                        args_list += ['--custom-trader', spec, '--custom-trader-params', params]
+                # Reports and experiments
+                if _yes("Export HTML performance report after backtest?"):
+                    rpt = _ask("Report path", 'report.html')
+                    args_list += ['--export-report', '--report-out', rpt]
+                if _yes("Run Optuna hyperparameter search?"):
+                    trials = _ask_int("Optuna trials", 10)
+                    args_list += ['--optuna-trials', trials]
+                    if _yes("Enable MLflow tracking for Optuna?"):
+                        uri = _ask("MLflow URI (e.g., file:/tmp/mlruns)", '')
+                        exp = _ask("MLflow experiment name", 'trading-simulator')
+                        if uri:
+                            args_list += ['--mlflow-uri', uri, '--mlflow-experiment', exp]
                 print("\nRunning: ", ' '.join(['python', os.path.basename(__file__)] + args_list))
                 sys.argv = [sys.argv[0]] + args_list
             elif mode == 'replay':
                 symbol = input("Symbol (e.g., AAPL): ").strip() or 'AAPL'
                 start = input("Start date [YYYY-MM-DD] (default 2023-01-01): ").strip() or '2023-01-01'
                 end = input("End date [YYYY-MM-DD] (default 2023-12-31): ").strip() or '2023-12-31'
-                enable_tr = (input("Enable built-in traders? [y/N]: ").strip().lower() == 'y')
-                speed = input("Replay speed (1.0=real-time, default 5): ").strip() or '5'
+                enable_tr = _yes("Enable built-in traders?")
+                speed = _ask("Replay speed (1.0=real-time)", '5')
                 log_dir = input("Log directory (default .logs): ").strip() or '.logs'
                 args_list = ['--mode', 'replay', '--symbol', symbol, '--start-date', start, '--end-date', end, '--replay-speed', speed, '--log-dir', log_dir]
                 if enable_tr:
                     args_list += ['--enable-traders']
+                    if _yes("Customize built-in trader parameters (momentum/EMA/swing)?"):
+                        mlb = _ask_int("Momentum lookback", 5)
+                        sew = _ask_int("EMA short window", 5)
+                        lew = _ask_int("EMA long window", 20)
+                        sup = _ask_float("Swing support", 100.0)
+                        res = _ask_float("Swing resistance", 200.0)
+                        args_list += ['--momentum-lookback', mlb, '--ema-short-window', sew, '--ema-long-window', lew, '--swing-support', sup, '--swing-resistance', res]
+                # MM & protections & risk (same as backtest)
+                if _yes("Customize market maker parameters?"):
+                    args_list += [
+                        '--mm-gamma', _ask_float('MM gamma', 0.1),
+                        '--mm-k', _ask_float('MM k', 1.5),
+                        '--mm-horizon-seconds', _ask_float('MM horizon seconds', 60.0),
+                        '--mm-max-inventory', _ask_int('MM max inventory', 1000),
+                        '--mm-base-order-size', _ask_int('MM base order size', 100),
+                        '--mm-min-spread', _ask_float('MM min spread', 0.01),
+                        '--mm-num-levels', _ask_int('MM num levels', 2),
+                        '--mm-level-spacing-bps', _ask_float('MM level spacing bps', 2.0),
+                        '--mm-size-decay', _ask_float('MM size decay (0-1]', 0.7),
+                        '--mm-momentum-window', _ask_int('MM momentum window', 10),
+                        '--mm-alpha-skew', _ask_float('MM alpha skew', 0.5),
+                        '--mm-vol-widen-z', _ask_float('MM vol widen z', 2.0),
+                        '--mm-drawdown-limit', _ask_float('MM drawdown limit (fraction)', 0.2),
+                    ]
+                if _yes("Customize matching protections (band/fees/queue/snapshots)?"):
+                    pbb = _ask_float("Price band (bps, 0 disables)", 0.0)
+                    brf = (_ask("Band reference [mid|last]", 'mid') or 'mid')
+                    tkr = _ask_float("Taker fee (bps)", 0.0)
+                    mkr = _ask_float("Maker rebate (bps)", 0.0)
+                    useq = _yes("Enable submission queue?")
+                    qmax = _ask_int("Queue max (orders)", 10000) if useq else ''
+                    snapi = _ask_int("Snapshot interval sec (0 disables)", 0)
+                    snapd = _ask("Snapshot dir (blank to disable)", '')
+                    args_list += ['--price-band-bps', pbb, '--band-reference', brf, '--taker-fee-bps', tkr, '--maker-rebate-bps', mkr]
+                    if useq:
+                        args_list += ['--use-queue', '--queue-max', qmax]
+                    if snapi and snapi != '0' and snapd:
+                        args_list += ['--snapshot-interval-sec', snapi, '--snapshot-dir', snapd]
+                if _yes("Customize risk manager (qty, exposure, volatility, leverage)?"):
+                    rmaxq = _ask_int("Max order qty", 1000)
+                    rmaxp = _ask_int("Max net position per symbol", 10000)
+                    rmaxn = _ask_float("Max gross notional per order", 5_000_000.0)
+                    rminq = _ask_int("Min order qty", 1)
+                    rlot = _ask_int("Lot size", 1)
+                    rrl = _yes("Require round lots?")
+                    rrate = _ask_int("Order rate limit (orders/sec, blank none)", None)
+                    rdd = _ask_float("Owner drawdown limit (fraction, blank none)", None)
+                    rvolw = _ask_int("Volatility window", 20)
+                    rvolz = _ask_float("Volatility halt |z| (blank none)", None)
+                    rlev = _ask_float("Max leverage (blank none)", None)
+                    rsymgross = _ask_float("Max symbol gross exposure (blank none)", None)
+                    args_list += ['--risk-max-order-qty', rmaxq, '--risk-max-symbol-position', rmaxp, '--risk-max-gross-notional', rmaxn, '--risk-min-order-qty', rminq, '--risk-lot-size', rlot]
+                    if rrl:
+                        args_list += ['--risk-round-lot-required']
+                    if rrate:
+                        args_list += ['--risk-order-rate-limit', rrate]
+                    if rdd:
+                        args_list += ['--risk-owner-drawdown-limit', rdd]
+                    args_list += ['--risk-volatility-window', rvolw]
+                    if rvolz:
+                        args_list += ['--risk-volatility-halt-z', rvolz]
+                    if rlev:
+                        args_list += ['--risk-max-leverage', rlev]
+                    if rsymgross:
+                        args_list += ['--risk-max-symbol-gross-exposure', rsymgross]
+                if _yes("Add custom traders (module:ClassName + JSON params)?"):
+                    print("Tip: Your class should subclass AlgorithmicTrader(symbol, matching_engine, **params).")
+                    while True:
+                        spec = _ask("Trader spec module:ClassName (blank to stop)", '')
+                        if not spec:
+                            break
+                        params = _ask("JSON params for this trader", '{}')
+                        args_list += ['--custom-trader', spec, '--custom-trader-params', params]
                 print("\nRunning: ", ' '.join(['python', os.path.basename(__file__)] + args_list))
                 sys.argv = [sys.argv[0]] + args_list
             elif mode == 'live':
                 symbol = input("Symbol (e.g., AAPL or BTC-USD): ").strip() or 'AAPL'
-                interval = input("Market data interval seconds (default 30): ").strip() or '30'
-                enable_tr = (input("Enable built-in traders? [y/N]: ").strip().lower() == 'y')
+                interval = _ask("Market data interval seconds", '30')
+                enable_tr = _yes("Enable built-in traders?")
                 log_dir = input("Log directory (default .logs): ").strip() or '.logs'
                 args_list = ['--mode', 'live', '--symbol', symbol, '--md-interval', interval, '--log-dir', log_dir]
                 if enable_tr:
                     args_list += ['--enable-traders']
+                    if _yes("Customize built-in trader parameters (momentum/EMA/swing)?"):
+                        mlb = _ask_int("Momentum lookback", 5)
+                        sew = _ask_int("EMA short window", 5)
+                        lew = _ask_int("EMA long window", 20)
+                        sup = _ask_float("Swing support", 100.0)
+                        res = _ask_float("Swing resistance", 200.0)
+                        args_list += ['--momentum-lookback', mlb, '--ema-short-window', sew, '--ema-long-window', lew, '--swing-support', sup, '--swing-resistance', res]
+                # Live extras
+                if _yes("Start FIX server?"):
+                    fh = _ask("FIX host", 'localhost')
+                    fp = _ask_int("FIX port", 5005)
+                    args_list += ['--fix-host', fh, '--fix-port', fp]
+                if _yes("Inject synthetic liquidity periodically?"):
+                    inj = _ask_int("Injection interval seconds", 30)
+                    args_list += ['--inject-liquidity', inj]
+                if _yes("Customize market maker parameters?"):
+                    args_list += [
+                        '--mm-gamma', _ask_float('MM gamma', 0.1),
+                        '--mm-k', _ask_float('MM k', 1.5),
+                        '--mm-horizon-seconds', _ask_float('MM horizon seconds', 60.0),
+                        '--mm-max-inventory', _ask_int('MM max inventory', 1000),
+                        '--mm-base-order-size', _ask_int('MM base order size', 100),
+                        '--mm-min-spread', _ask_float('MM min spread', 0.01),
+                        '--mm-num-levels', _ask_int('MM num levels', 2),
+                        '--mm-level-spacing-bps', _ask_float('MM level spacing bps', 2.0),
+                        '--mm-size-decay', _ask_float('MM size decay (0-1]', 0.7),
+                        '--mm-momentum-window', _ask_int('MM momentum window', 10),
+                        '--mm-alpha-skew', _ask_float('MM alpha skew', 0.5),
+                        '--mm-vol-widen-z', _ask_float('MM vol widen z', 2.0),
+                        '--mm-drawdown-limit', _ask_float('MM drawdown limit (fraction)', 0.2),
+                    ]
+                if _yes("Customize matching protections (band/fees/queue/snapshots)?"):
+                    pbb = _ask_float("Price band (bps, 0 disables)", 0.0)
+                    brf = (_ask("Band reference [mid|last]", 'mid') or 'mid')
+                    tkr = _ask_float("Taker fee (bps)", 0.0)
+                    mkr = _ask_float("Maker rebate (bps)", 0.0)
+                    useq = _yes("Enable submission queue?")
+                    qmax = _ask_int("Queue max (orders)", 10000) if useq else ''
+                    snapi = _ask_int("Snapshot interval sec (0 disables)", 0)
+                    snapd = _ask("Snapshot dir (blank to disable)", '')
+                    args_list += ['--price-band-bps', pbb, '--band-reference', brf, '--taker-fee-bps', tkr, '--maker-rebate-bps', mkr]
+                    if useq:
+                        args_list += ['--use-queue', '--queue-max', qmax]
+                    if snapi and snapi != '0' and snapd:
+                        args_list += ['--snapshot-interval-sec', snapi, '--snapshot-dir', snapd]
+                if _yes("Customize risk manager (qty, exposure, volatility, leverage)?"):
+                    rmaxq = _ask_int("Max order qty", 1000)
+                    rmaxp = _ask_int("Max net position per symbol", 10000)
+                    rmaxn = _ask_float("Max gross notional per order", 5_000_000.0)
+                    rminq = _ask_int("Min order qty", 1)
+                    rlot = _ask_int("Lot size", 1)
+                    rrl = _yes("Require round lots?")
+                    rrate = _ask_int("Order rate limit (orders/sec, blank none)", None)
+                    rdd = _ask_float("Owner drawdown limit (fraction, blank none)", None)
+                    rvolw = _ask_int("Volatility window", 20)
+                    rvolz = _ask_float("Volatility halt |z| (blank none)", None)
+                    rlev = _ask_float("Max leverage (blank none)", None)
+                    rsymgross = _ask_float("Max symbol gross exposure (blank none)", None)
+                    args_list += ['--risk-max-order-qty', rmaxq, '--risk-max-symbol-position', rmaxp, '--risk-max-gross-notional', rmaxn, '--risk-min-order-qty', rminq, '--risk-lot-size', rlot]
+                    if rrl:
+                        args_list += ['--risk-round-lot-required']
+                    if rrate:
+                        args_list += ['--risk-order-rate-limit', rrate]
+                    if rdd:
+                        args_list += ['--risk-owner-drawdown-limit', rdd]
+                    args_list += ['--risk-volatility-window', rvolw]
+                    if rvolz:
+                        args_list += ['--risk-volatility-halt-z', rvolz]
+                    if rlev:
+                        args_list += ['--risk-max-leverage', rlev]
+                    if rsymgross:
+                        args_list += ['--risk-max-symbol-gross-exposure', rsymgross]
+                if _yes("Add custom traders (module:ClassName + JSON params)?"):
+                    print("Tip: Your class should subclass AlgorithmicTrader(symbol, matching_engine, **params).")
+                    while True:
+                        spec = _ask("Trader spec module:ClassName (blank to stop)", '')
+                        if not spec:
+                            break
+                        params = _ask("JSON params for this trader", '{}')
+                        args_list += ['--custom-trader', spec, '--custom-trader-params', params]
                 print("\nRunning: ", ' '.join(['python', os.path.basename(__file__)] + args_list))
                 sys.argv = [sys.argv[0]] + args_list
             elif mode == 'advanced':
@@ -3707,10 +3974,14 @@ def main() -> None:
             matching_engine.start_snapshotting(int(args.snapshot_interval_sec), args.snapshot_dir)
         except Exception:
             logging.warning("Failed to start snapshotting; check permissions/dir")
-    portfolio = Portfolio(initial_cash=args.initial_cash, fee_bps=args.fee_bps)
-    matching_engine.subscribe_trades(portfolio.on_execution)
+    # Owner-aware portfolio dispatcher (enables per-owner risk like drawdown/rate-limits)
+    dispatcher = PortfolioDispatcher(fee_bps=args.fee_bps)
+    portfolio = dispatcher.ensure('default', initial_cash=args.initial_cash)
+    matching_engine.subscribe_trades(dispatcher.on_execution)
     csv_logger = CsvLogger(args.log_dir)
     matching_engine.subscribe_trades(csv_logger.log_execution)
+    # Enable TCA logging via CSV logger
+    matching_engine.tca_logger = csv_logger  # type: ignore[attr-defined]
     # Risk manager
     matching_engine.risk_manager = RiskManager(
         portfolio=portfolio,
@@ -3722,7 +3993,7 @@ def main() -> None:
         round_lot_required=bool(args.risk_round_lot_required),
         order_rate_limit_per_sec=args.risk_order_rate_limit,
         owner_drawdown_limit=args.risk_owner_drawdown_limit,
-        owner_portfolios=None,
+        owner_portfolios=dispatcher,
         price_provider=matching_engine.get_last_trade_price,
         volatility_window=int(max(5, args.risk_volatility_window)),
         volatility_halt_z=args.risk_volatility_halt_z,
