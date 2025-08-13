@@ -2650,6 +2650,115 @@ class FixApplication:
             self.server_socket.close()
             logging.info("FIX server stopped.")
 
+
+class OrderCliServer:
+    """Minimal JSON-over-TCP order control for Live mode.
+
+    Protocol: one JSON per connection, fields:
+      {"action": "new", "symbol": "AAPL", "side": "buy|sell", "type": "limit|market",
+       "price": 150.25, "quantity": 100, "tif": "GTC|IOC|FOK", "owner_id": "cli"}
+      {"action": "cancel", "order_id": "..."}
+      {"action": "modify", "order_id": "...", "quantity": 50, "price": 150.4}
+    Response: JSON with {"ok": true/false, ...}
+    """
+
+    def __init__(self, matching_engine: MatchingEngine, host: str = '127.0.0.1', port: int = 8765, default_owner: str = 'cli') -> None:
+        self.engine = matching_engine
+        self.host = host
+        self.port = int(port)
+        self.default_owner = str(default_owner)
+        self._sock: Optional[socket.socket] = None
+        self._thread: Optional[threading.Thread] = None
+        self._running = False
+
+    def _handle_conn(self, conn: socket.socket) -> None:
+        try:
+            raw = conn.recv(8192)
+            data = json.loads(raw.decode('utf-8')) if raw else {}
+            action = str(data.get('action', '')).lower()
+            if action == 'new':
+                try:
+                    order = Order(
+                        id=uuid.uuid4().hex,
+                        symbol=str(data['symbol']),
+                        side=str(data['side']).lower(),
+                        type=str(data.get('type', 'limit')).lower(),
+                        price=float(data.get('price', 0.0)),
+                        quantity=int(data.get('quantity', 0)),
+                        tif=str(data.get('tif', 'GTC')).upper(),
+                        owner_id=str(data.get('owner_id', self.default_owner)),
+                    )
+                    self.engine.match_order(order)
+                    resp = {"ok": True, "order_id": order.id}
+                except Exception as exc:
+                    resp = {"ok": False, "error": str(exc)}
+            elif action == 'cancel':
+                try:
+                    oid = str(data['order_id'])
+                    self.engine.cancel_order(oid)
+                    resp = {"ok": True, "order_id": oid}
+                except Exception as exc:
+                    resp = {"ok": False, "error": str(exc)}
+            elif action == 'modify':
+                try:
+                    oid = str(data['order_id'])
+                    q = data.get('quantity')
+                    p = data.get('price')
+                    self.engine.order_book.modify_order(oid, new_quantity=int(q) if q is not None else None, new_price=float(p) if p is not None else None)
+                    resp = {"ok": True, "order_id": oid}
+                except Exception as exc:
+                    resp = {"ok": False, "error": str(exc)}
+            else:
+                resp = {"ok": False, "error": "unknown action"}
+            conn.sendall(json.dumps(resp).encode('utf-8'))
+        except Exception as exc:
+            try:
+                conn.sendall(json.dumps({"ok": False, "error": str(exc)}).encode('utf-8'))
+            except Exception:
+                pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _serve(self) -> None:
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.bind((self.host, self.port))
+        self._sock.listen(8)
+        self._running = True
+        logging.info("Order CLI server listening on %s:%d", self.host, self.port)
+        while self._running:
+            try:
+                conn, _ = self._sock.accept()
+                threading.Thread(target=self._handle_conn, args=(conn,), daemon=True).start()
+            except OSError:
+                if not self._running:
+                    break
+            except Exception:
+                logging.debug("Order CLI accept failed", exc_info=True)
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._running = False
+        try:
+            if self._sock is not None:
+                self._sock.close()
+        except Exception:
+            pass
+        if self._thread is not None:
+            try:
+                self._thread.join(timeout=2)
+            except Exception:
+                pass
+            self._thread = None
+
     def create_order_message(self, order: Dict[str, Any]) -> simplefix.FixMessage:
         msg = simplefix.FixMessage()
         msg.append_pair(8, b'FIX.4.2')
@@ -3896,6 +4005,11 @@ def main() -> None:
     parser.add_argument('--optuna-trials', type=int, default=0, help='Run Optuna parameter search with N trials (0 to disable)')
     parser.add_argument('--mlflow-uri', default=None, help='MLflow tracking URI (set to enable MLflow logging)')
     parser.add_argument('--mlflow-experiment', default='trading-simulator', help='MLflow experiment name')
+    # Live order CLI (JSON over TCP)
+    parser.add_argument('--order-cli-enable', action='store_true', help='Enable local order-control server for live mode')
+    parser.add_argument('--order-cli-host', default='127.0.0.1', help='Order-control server host (live mode)')
+    parser.add_argument('--order-cli-port', type=int, default=8765, help='Order-control server port (live mode)')
+    parser.add_argument('--order-cli-owner', default='cli', help='Default owner_id for orders placed via order shell/client')
     # Historical live replay controls
     parser.add_argument('--replay-speed', type=float, default=1.0, help='Historical replay speed factor (1.0 = real time; 10.0 = 10x faster)')
     parser.add_argument('--replay-interval-seconds', type=float, default=None, help='Fixed seconds between historical ticks (overrides speed if set)')
@@ -4360,6 +4474,16 @@ def main() -> None:
 
     trader_threads = start_trader_threads(traders, market_data_feed)
 
+    # Start simple Order CLI server (JSON over TCP) for manual orders
+    order_cli: Optional[OrderCliServer] = None
+    if args.order_cli_enable:
+        try:
+            order_cli = OrderCliServer(matching_engine, host=args.order_cli_host, port=args.order_cli_port, default_owner=args.order_cli_owner)
+            order_cli.start()
+            logging.info("Order CLI enabled: send JSON to %s:%d (actions: new/cancel/modify)", args.order_cli_host, args.order_cli_port)
+        except Exception as exc:
+            logging.warning("Failed to start Order CLI: %s", exc)
+
     # Optional: liquidity injection
     liquidity_thread: Optional[threading.Thread] = None
     if args.inject_liquidity > 0:
@@ -4387,6 +4511,11 @@ def main() -> None:
         if liquidity_thread:
             # No explicit stop; thread is daemon and will exit on process termination
             pass
+        if order_cli is not None:
+            try:
+                order_cli.stop()
+            except Exception:
+                pass
         # Final live snapshot and equity log entry if last price is known
         snap = portfolio.snapshot()
         last_price = market_data_feed.last_price()

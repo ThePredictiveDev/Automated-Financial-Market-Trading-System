@@ -27,6 +27,7 @@
 - [🔌 API Integration](#-api-integration)
 - [📝 Configuration](#-configuration)
 - [📊 Performance Analytics](#-performance-analytics)
+- [🖥️ Live Order Control (Split Terminal)](#️-live-order-control-split-terminal)
 - [🤝 Contributing](#-contributing)
 - [📄 License](#-license)
 
@@ -969,6 +970,80 @@ The system prints rolling metrics during Replay and at the end of Backtest/Live 
 - Average Slippage vs Mid (bps), Adverse Selection Rate
 
 These are computed from `equity_curve.csv`, `executions.csv`, `tca.csv`, and `tca_adv.csv` in your chosen log directory.
+
+## 🖥️ Live Order Control (Split Terminal)
+
+Place, cancel, or modify orders while a Live run is executing—without FIX. This lightweight order shell uses JSON-over-TCP and integrates with the same risk/matching/TCA pipeline.
+
+### Enable
+- Interactive CLI: answer “Enable local order-control server for live mode?” → Yes
+- Flags: add `--order-cli-enable --order-cli-host 127.0.0.1 --order-cli-port 8765 --order-cli-owner cli`
+
+When enabled, the server listens on host:port and logs:
+```
+Order CLI enabled: send JSON to 127.0.0.1:8765 (actions: new/cancel/modify)
+```
+
+### Protocol
+- One JSON per connection; server responds with JSON `{ "ok": true/false, ... }`
+- Actions:
+  - New order:
+    ```json
+    {
+      "action": "new",
+      "symbol": "AAPL",
+      "side": "buy",           
+      "type": "limit",         
+      "price": 150.25,          
+      "quantity": 100,
+      "tif": "GTC",            
+      "owner_id": "cli"        
+    }
+    ```
+  - Cancel:
+    ```json
+    { "action": "cancel", "order_id": "<returned id>" }
+    ```
+  - Modify (in-book):
+    ```json
+    { "action": "modify", "order_id": "<id>", "price": 150.4, "quantity": 50 }
+    ```
+
+Notes:
+- `owner_id` routes PnL/risk to that portfolio owner (default from `--order-cli-owner`).
+- Orders pass the same risk checks; executions hit TCA and CSV logs.
+- Works offline: the live feed auto-simulates if data fetching fails.
+
+### Usage Examples
+
+Windows PowerShell
+```powershell
+$host = "127.0.0.1"; $port = 8765
+python -c "import socket,json,sys; h=sys.argv[1]; p=int(sys.argv[2]); o={'action':'new','symbol':'AAPL','side':'buy','type':'limit','price':150.25,'quantity':100,'tif':'GTC','owner_id':'cli'}; s=socket.socket(); s.connect((h,p)); s.sendall(json.dumps(o).encode()); print(s.recv(4096).decode()); s.close()" $host $port
+```
+
+Cancel (replace with returned order_id):
+```powershell
+$host = "127.0.0.1"; $port = 8765
+python -c "import socket,json,sys; h=sys.argv[1]; p=int(sys.argv[2]); o={'action':'cancel','order_id':'REPLACE_WITH_ORDER_ID'}; s=socket.socket(); s.connect((h,p)); s.sendall(json.dumps(o).encode()); print(s.recv(4096).decode()); s.close()" $host $port
+```
+
+Modify:
+```powershell
+$host = "127.0.0.1"; $port = 8765
+python -c "import socket,json,sys; h=sys.argv[1]; p=int(sys.argv[2]); o={'action':'modify','order_id':'REPLACE_WITH_ORDER_ID','price':150.4,'quantity':50}; s=socket.socket(); s.connect((h,p)); s.sendall(json.dumps(o).encode()); print(s.recv(4096).decode()); s.close()" $host $port
+```
+
+bash/zsh
+```bash
+host=127.0.0.1; port=8765
+python - << 'PY'
+import socket, json, os
+host = os.environ.get('HOST','127.0.0.1'); port = int(os.environ.get('PORT','8765'))
+o = {"action":"new","symbol":"AAPL","side":"buy","type":"limit","price":150.25,"quantity":100,"tif":"GTC","owner_id":"cli"}
+s = socket.socket(); s.connect((host,port)); s.sendall(json.dumps(o).encode()); print(s.recv(4096).decode()); s.close()
+PY
+```
 
 
 ### Performance Metrics
