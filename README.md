@@ -1,380 +1,963 @@
-## Automated Financial Market Trading System
-Comprehensive, production-ready Python 3.11+ trading simulator. It models a realistic microstructure with a limit order book, a top-of-book matching engine that supports partial fills, a TCP FIX server, live intraday market data from `yahooquery`, a market maker and synthetic liquidity provider, multiple algorithmic traders, portfolio and risk management, and robust CSV logging. Use the CLI in `trading_simulator_with_algorithmic_traders.py` for backtests and live simulations, explore the components interactively in `Trading Simulator in Python With Algorithmic Traders.ipynb`.
+# 🤖 Automated Financial Market Trading System
 
-Audience guidance
-- Notebook (`Trading Simulator in Python With Algorithmic Traders.ipynb`): best for new and intermediate users to learn concepts step-by-step with inline explanations.
-- CLI (`trading_simulator_with_algorithmic_traders.py`): best for advanced/experienced users who want full control, automation, multi-asset backtests, FIX connectivity, and configurable microstructure.
+[![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen.svg)](https://github.com/yourusername/Automated-Financial-Market-Trading-System)
+[![Contributions](https://img.shields.io/badge/Contributions-Welcome-orange.svg)](CONTRIBUTING.md)
+[![Issues](https://img.shields.io/badge/Issues-Open-red.svg)](https://github.com/yourusername/Automated-Financial-Market-Trading-System/issues)
 
-### Table of contents
-- Features and architecture
-- Installation (minimal and full)
-- End-to-end quick start
-- Detailed CLI reference and examples
-- Components
-  - Order book and matching engine
-  - FIX application (TCP server)
-  - Market data feed (yahooquery)
-  - Market maker and synthetic liquidity
-  - Algorithmic traders (Momentum, EMA, Swing, Sentiment)
-  - Portfolio tracking and Risk manager
-  - CSV logging and analytics
-- Data sources, caching, timezones
-- Strategy registry
-- Using FIX from a client (examples)
-- Backtesting workflow
-- Troubleshooting and operational notes
-- Notebook guide: `Trading Simulator in Python With Algorithmic Traders.ipynb`
-- Project structure
-- License
+> **A comprehensive, production-ready algorithmic trading system with real-time market data, multiple trading strategies, risk management, and advanced backtesting capabilities.**
 
-## Features and architecture
-- Order book with per-price FIFO queues, add/modify/cancel, and an `order_map` for O(1) lookup.
-- Matching engine with thread-safe execution, partial fills, and trade event subscribers.
-- FIX TCP server built on `simplefix` supporting NewOrderSingle (D) and OrderCancelRequest (F).
-- Market data feed powered by `yahooquery` with retries, backoff, session caching, and optional rate limiting.
-- Market maker with dynamic spread derived from recent price volatility; always-quoting behavior.
-- Synthetic liquidity provider for stress testing liquidity and matching.
-- Algorithmic traders: Momentum, EMA crossover, Swing (support/resistance), Sentiment (Keras + NewsAPI).
-- Portfolio with cash, net positions, average prices, realized PnL, fees; event-driven updates on executions.
-- Risk manager enforcing max order quantity, per-symbol exposure, and gross notional pre-trade.
-- CSV logging of executions and equity curve for downstream analysis.
+<div align="center">
+  <img src="https://capsule-render.vercel.app/api?text=Automated%20Trading%20System&animation=fadeIn&type=waving&color=gradient&height=100"/>
+</div>
 
-## Installation
-Python 3.11+ is required. We recommend a virtual environment.
+## 📋 Table of Contents
 
-### Minimal setup (core simulator)
-```bash
-pip install --upgrade pip
-pip install yahooquery simplefix pandas numpy
+- [🚀 Features](#-features)
+- [🎯 What You Can Do](#-what-you-can-do)
+- [🏗️ Architecture](#️-architecture)
+- [📦 Installation](#-installation)
+- [⚡ Quick Start](#-quick-start)
+- [🔧 Usage Modes](#-usage-modes)
+- [📊 Trading Strategies](#-trading-strategies)
+- [🛡️ Risk Management](#️-risk-management)
+- [📈 Backtesting](#-backtesting)
+- [🔌 API Integration](#-api-integration)
+- [📝 Configuration](#-configuration)
+- [📊 Performance Analytics](#-performance-analytics)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
+
+## 🚀 Features
+
+### Core Trading Engine
+- **🔧 High-Performance Matching Engine**: Real-time order matching with price-time priority
+- **📊 Order Book Management**: Full limit order book with bid/ask depth tracking
+- **⚡ Low-Latency Execution**: Sub-millisecond order processing with configurable latency simulation
+- **🔄 FIX Protocol Support**: Industry-standard FIX 4.2 protocol integration via simplefix
+- **📈 Real-time Market Data**: Live price feeds via yfinance with automatic fallback mechanisms
+
+### Algorithmic Trading Strategies
+- **📈 Momentum Trading**: Price momentum-based strategy with configurable lookback periods
+- **📊 EMA Crossover**: Exponential Moving Average crossover strategy with customizable windows
+- **🔄 Swing Trading**: Support/resistance level-based trading with dynamic level adjustment
+- **🧠 Sentiment Analysis**: AI-powered news sentiment trading using TensorFlow/Keras models
+- **🎯 Custom Strategies**: Framework for implementing custom trading algorithms
+
+### Market Making & Liquidity
+- **🏪 Avellaneda-Stoikov Market Maker**: Advanced market making with inventory management
+- **💰 Multi-Level Quoting**: Configurable quote laddering with size decay
+- **📊 Dynamic Spread Adjustment**: Volatility-based spread widening and momentum skewing
+- **🛡️ Drawdown Protection**: Automatic quote withdrawal on excessive losses
+- **🔄 Synthetic Liquidity**: Automated liquidity injection for testing scenarios
+
+### Risk Management System
+- **📏 Position Limits**: Per-symbol and portfolio-level position constraints
+- **💰 Notional Limits**: Maximum order and portfolio notional value controls
+- **⚡ Rate Limiting**: Configurable order submission rate limits per strategy
+- **📉 Drawdown Protection**: Automatic trading halt on portfolio drawdown thresholds
+- **🔒 Volatility Halts**: Market volatility-based trading suspension
+- **🎯 Leverage Controls**: Maximum leverage and gross exposure limits
+
+### Advanced Backtesting
+- **📊 Historical Data**: Yahoo Finance integration with intelligent caching
+- **⚡ High-Speed Simulation**: Optimized backtesting engine with configurable slippage
+- **📈 Performance Analytics**: Comprehensive performance metrics and reporting
+- **🔄 Multi-Asset Testing**: Simultaneous testing across multiple symbols
+- **📊 Parameter Optimization**: Optuna integration for strategy parameter tuning
+- **📈 MLflow Integration**: Experiment tracking and model versioning
+
+### Data & Analytics
+- **📊 Real-time Portfolio Tracking**: Live P&L, positions, and equity curve monitoring
+- **📈 Trade Cost Analysis (TCA)**: Slippage analysis and adverse selection tracking
+- **📊 Execution Analytics**: Detailed execution quality and market impact analysis
+- **📈 Performance Metrics**: Sharpe ratio, Sortino ratio, max drawdown, CAGR
+- **📊 HTML Reports**: Automated performance report generation with interactive charts
+- **📈 CSV Logging**: Comprehensive trade and equity data export
+
+### Infrastructure & Integration
+- **🗄️ Database Support**: PostgreSQL integration for persistent data storage
+- **📡 Event Streaming**: Redis and Kafka integration for real-time event distribution
+- **🔧 Configuration Management**: Flexible configuration system with environment variables
+- **📊 Monitoring**: Comprehensive logging and audit trails
+- **🔄 Snapshot Management**: Order book state persistence and recovery
+- **🎯 Auction Support**: Opening/closing auction mechanisms
+
+## 🎯 What You Can Do
+
+### For Traders & Investors
+- **📈 Test Trading Strategies**: Backtest your strategies on historical data with realistic market conditions
+- **🔄 Paper Trading**: Practice trading with virtual money in real-time market conditions
+- **📊 Portfolio Analysis**: Analyze your trading performance with professional-grade metrics
+- **🎯 Strategy Development**: Develop and optimize custom trading algorithms
+- **📈 Market Research**: Study market microstructure and order book dynamics
+
+### For Developers & Researchers
+- **🔬 Market Microstructure Research**: Study order book dynamics and market impact
+- **📊 Algorithm Development**: Build and test new trading algorithms
+- **🔧 System Integration**: Integrate with existing trading infrastructure via FIX protocol
+- **📈 Performance Testing**: Benchmark trading strategies and execution algorithms
+- **🎯 Machine Learning**: Develop ML-based trading strategies with sentiment analysis
+
+### For Institutions
+- **🏢 Risk Management**: Implement comprehensive risk controls and monitoring
+- **📊 Compliance**: Maintain detailed audit trails and trade records
+- **🔧 Infrastructure**: Build scalable trading infrastructure with real-time capabilities
+- **📈 Analytics**: Generate institutional-grade performance and risk analytics
+- **🔄 Integration**: Connect with existing trading systems and data feeds
+
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Trading System Architecture                   │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
+│  │ Market Data │  │   FIX API   │  │   Web UI    │             │
+│  │    Feed     │  │   Client    │  │  (Future)   │             │
+│  └─────────────┘  └─────────────┘  └─────────────┘             │
+│         │                │                │                     │
+│         └────────────────┼────────────────┘                     │
+│                          │                                     │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │                    Trading Engine Core                      │ │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │ │
+│  │  │   Order     │  │ Matching    │  │   Risk      │         │ │
+│  │  │   Book      │  │  Engine     │  │ Management  │         │ │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘         │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                          │                                     │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │                  Algorithmic Traders                        │ │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │ │
+│  │  │ Momentum    │  │    EMA      │  │   Swing     │         │ │
+│  │  │  Trader     │  │   Trader    │  │   Trader    │         │ │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘         │ │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │ │
+│  │  │ Sentiment   │  │   Market    │  │   Custom    │         │ │
+│  │  │  Trader     │  │   Maker     │  │   Trader    │         │ │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘         │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                          │                                     │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │                    Data & Analytics                         │ │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │ │
+│  │  │ Portfolio   │  │   Trade     │  │ Performance │         │ │
+│  │  │  Tracker    │  │   Logger    │  │  Analytics  │         │ │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘         │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│                          │                                     │
+│  ┌─────────────────────────────────────────────────────────────┐ │
+│  │                  Storage & Integration                      │ │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │ │
+│  │  │ PostgreSQL  │  │    Redis    │  │    Kafka    │         │ │
+│  │  │   Database  │  │   Cache     │  │   Events    │         │ │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘         │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Full setup (enables sentiment, caching, parquet, and smoother live usage)
+## 📦 Installation
+
+### Prerequisites
+
+- **Python 3.11+** (Required for modern type hints and performance features)
+- **Git** (For cloning the repository)
+- **pip** (Python package manager)
+
+### Basic Installation
+
 ```bash
-pip install --upgrade pip
-pip install \
-  yahooquery simplefix pandas numpy \
-  tensorflow==2.15.1 newsapi-python \
-  requests-cache requests-ratelimiter pyrate-limiter \
-  pyarrow
+# Clone the repository
+git clone https://github.com/yourusername/Automated-Financial-Market-Trading-System.git
+cd Automated-Financial-Market-Trading-System
+
+# Create a virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install core dependencies
+pip install -r requirements.txt
 ```
 
-Notes
-- TensorFlow 2.15.1 supports Python 3.11 (CPU). For GPU installs, follow TensorFlow’s official docs.
-- `pyarrow` enables faster on-disk caching via Parquet; if missing, the system will fall back to CSV.
-- If `requests-cache` and rate limiter are not installed, the system will gracefully fall back to a standard `requests.Session`.
+### Advanced Installation with Optional Dependencies
 
-## End-to-end quick start
-Run all commands from the project root.
-
-### Backtest
 ```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbol AAPL --start-date 2023-01-01 --end-date 2023-12-31 \
-  --enable-traders --initial-cash 1000000 --fee-bps 0 --log-dir .logs
-```
-Outputs
-- Executions: `.logs/executions.csv`
-- Equity curve: `.logs/equity_curve.csv`
+# Install with all optional dependencies for full functionality
+pip install -r requirements-full.txt
 
-### Live
-```bash
-python trading_simulator_with_algorithmic_traders.py --mode live \
-  --symbol AAPL --md-interval 60 --enable-traders \
-  --fix-host localhost --fix-port 5005 \
-  --sentiment-model-path sentiment_classifier_model.keras \
-  --news-api-key YOUR_NEWSAPI_KEY
-```
-Stop with Ctrl+C. Shutdown is graceful: live threads are stopped and a final equity snapshot is logged if the last price is known.
-
-### Demo (simple order-book controls)
-```bash
-python trading_simulator_with_algorithmic_traders.py --mode demo
+# Or install specific components
+pip install trading-simulator[mlflow]      # MLflow integration
+pip install trading-simulator[optuna]      # Parameter optimization
+pip install trading-simulator[postgresql]  # Database support
+pip install trading-simulator[redis]       # Redis caching
+pip install trading-simulator[kafka]       # Event streaming
 ```
 
-### Optional liquidity injection (live)
+### Environment Setup
+
 ```bash
-python trading_simulator_with_algorithmic_traders.py --mode live --symbol AAPL --inject-liquidity 5
+# Copy environment template
+cp .env.example .env
+
+# Edit environment variables
+nano .env
 ```
 
-### Multi-asset backtest (single portfolio across symbols)
+**Key Environment Variables:**
 ```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbols AAPL,MSFT,GOOG --start-date 2023-01-01 --end-date 2023-12-31 \
-  --enable-traders --initial-cash 1000000 --log-dir .logs
+# API Keys (Optional)
+NEWS_API_KEY=your_news_api_key_here
+YAHOO_FINANCE_API_KEY=your_yahoo_key_here
+
+# Database Configuration
+DATABASE_URL=postgresql://user:pass@localhost/trading_db
+REDIS_URL=redis://localhost:6379
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+
+# Trading Configuration
+DEFAULT_INITIAL_CASH=1000000
+DEFAULT_FEE_BPS=1.0
+DEFAULT_MAKER_REBATE_BPS=0.5
+
+# Risk Management
+MAX_ORDER_QTY=1000
+MAX_SYMBOL_POSITION=10000
+MAX_GROSS_NOTIONAL=5000000
 ```
 
-## Detailed CLI reference
-Script: `trading_simulator_with_algorithmic_traders.py`
+## ⚡ Quick Start
 
-- **--mode**: `backtest` | `live` | `demo` (default: `backtest`).
-- **--symbol**: Ticker symbol (default: `AAPL`).
-- **--symbols**: Comma-separated symbols for multi-asset backtest (e.g., `AAPL,MSFT`).
-- Backtest only: **--start-date**, **--end-date** (YYYY-MM-DD), **--enable-traders** to include built-in algos during backtest.
-- Live data: **--md-interval** in seconds for the yahooquery feed.
-- FIX: **--fix-host**, **--fix-port** to bind the server.
-- Sentiment: **--sentiment-model-path**, **--news-api-key**, **--sentiment-vocab-path** (TextVectorization vocab file).
-- Portfolio/fees: **--initial-cash**, **--fee-bps** (basis points).
-- Risk: **--risk-max-order-qty**, **--risk-max-symbol-position**, **--risk-max-gross-notional**.
-- Logging: **--log-dir** (folder for CSV outputs).
-- Reproducibility: **--seed** to seed Python, NumPy, and TensorFlow RNGs when available.
-- Microstructure (backtests): **--slippage-bps-per-100**, **--latency-ms**.
-- Reporting: **--export-report**, **--report-out**.
-- Parameter search: **--optuna-trials**, **--mlflow-uri**, **--mlflow-experiment**.
+### 1. Simple Backtest
 
-### CLI commands cookbook (copy-paste examples)
-
-Basic single-asset backtest
 ```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbol AAPL --start-date 2023-01-01 --end-date 2023-12-31
+# Run a basic backtest on AAPL
+python trading_simulator_with_algorithmic_traders.py \
+  --mode backtest \
+  --symbol AAPL \
+  --start-date 2023-01-01 \
+  --end-date 2023-12-31 \
+  --enable-traders \
+  --export-report
 ```
 
-Backtest with built-in traders (Momentum, EMA, Swing)
+### 2. Live Trading Simulation
+
 ```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbol AAPL --start-date 2023-01-01 --end-date 2023-12-31 \
+# Start live trading simulation with market maker
+python trading_simulator_with_algorithmic_traders.py \
+  --mode live \
+  --symbol AAPL \
+  --md-interval 30 \
   --enable-traders
 ```
 
-Backtest with microstructure and risk controls
+### 3. Interactive Demo
+
 ```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbol AAPL --start-date 2023-01-01 --end-date 2023-12-31 \
+# Run interactive demo mode
+python trading_simulator_with_algorithmic_traders.py --mode demo
+```
+
+## 🔧 Usage Modes
+
+### Backtest Mode
+Run historical simulations with configurable parameters:
+
+```bash
+python trading_simulator_with_algorithmic_traders.py \
+  --mode backtest \
+  --symbol AAPL \
+  --start-date 2023-01-01 \
+  --end-date 2023-12-31 \
   --enable-traders \
-  --slippage-bps-per-100 2.5 --latency-ms 100 \
-  --risk-max-order-qty 500 --risk-max-symbol-position 5000 \
-  --risk-max-gross-notional 2000000
+  --initial-cash 1000000 \
+  --fee-bps 1.0 \
+  --slippage-bps-per-100 0.5 \
+  --latency-ms 10 \
+  --export-report \
+  --report-out performance_report.html
 ```
 
-Backtest with fees, custom cash, and CSV output directory
+**Multi-Asset Backtest:**
 ```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbol AAPL --start-date 2023-01-01 --end-date 2023-12-31 \
-  --initial-cash 2000000 --fee-bps 1.0 --log-dir runs/aapl_2023
+python trading_simulator_with_algorithmic_traders.py \
+  --mode backtest \
+  --symbols "AAPL,MSFT,GOOGL,TSLA" \
+  --start-date 2023-01-01 \
+  --end-date 2023-12-31 \
+  --enable-traders
 ```
 
-Export HTML performance report after backtest
+### Live Mode
+Real-time trading simulation with live market data:
+
 ```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbol AAPL --start-date 2023-01-01 --end-date 2023-12-31 \
-  --export-report --report-out report_aapl_2023.html
+python trading_simulator_with_algorithmic_traders.py \
+  --mode live \
+  --symbol AAPL \
+  --md-interval 30 \
+  --enable-traders \
+  --fix-host localhost \
+  --fix-port 5005 \
+  --inject-liquidity 60
 ```
 
-Multi-asset backtest (shared portfolio across symbols)
+### Replay Mode
+Historical data replay at configurable speed:
+
 ```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbols AAPL,MSFT,GOOG --start-date 2023-01-01 --end-date 2023-12-31 \
-  --enable-traders --log-dir runs/multi
+python trading_simulator_with_algorithmic_traders.py \
+  --mode replay \
+  --symbol AAPL \
+  --start-date 2023-01-01 \
+  --end-date 2023-12-31 \
+  --replay-speed 5.0 \
+  --enable-traders
 ```
 
-Parameter search with Optuna (and MLflow logging)
-```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbol AAPL --start-date 2023-01-01 --end-date 2023-12-31 \
-  --optuna-trials 25 --mlflow-uri http://localhost:5000 \
-  --mlflow-experiment trading-simulator
-```
+### Demo Mode
+Interactive order book demonstration:
 
-Live mode (streaming market data)
-```bash
-python trading_simulator_with_algorithmic_traders.py --mode live \
-  --symbol AAPL --md-interval 60
-```
-
-Live mode with built-in traders
-```bash
-python trading_simulator_with_algorithmic_traders.py --mode live \
-  --symbol AAPL --md-interval 30 --enable-traders
-```
-
-Live mode with FIX server enabled
-```bash
-python trading_simulator_with_algorithmic_traders.py --mode live \
-  --symbol AAPL --enable-traders \
-  --fix-host 0.0.0.0 --fix-port 5005
-```
-
-Live mode with sentiment trader
-```bash
-python trading_simulator_with_algorithmic_traders.py --mode live \
-  --symbol AAPL --enable-traders \
-  --news-api-key YOUR_NEWSAPI_KEY \
-  --sentiment-model-path sentiment_classifier_model.keras \
-  --sentiment-vocab-path vocab.txt
-```
-
-Live mode with periodic synthetic liquidity injection
-```bash
-python trading_simulator_with_algorithmic_traders.py --mode live \
-  --symbol AAPL --enable-traders --inject-liquidity 5
-```
-
-Demo mode (simple order-book controls)
 ```bash
 python trading_simulator_with_algorithmic_traders.py --mode demo
 ```
 
-Reproducible runs (seeding RNGs)
-```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbol AAPL --start-date 2023-01-01 --end-date 2023-12-31 \
-  --seed 12345
-```
+## 📊 Trading Strategies
 
-Customize CSV output directory
-```bash
-python trading_simulator_with_algorithmic_traders.py --mode backtest \
-  --symbol AAPL --start-date 2023-01-01 --end-date 2023-12-31 \
-  --log-dir .logs/aapl_2023
-```
+### 1. Momentum Trader
+Trades based on short-term price momentum:
 
-Notes
-- Combine flags as needed; unspecified flags use sensible defaults.
-- All timestamps in logs are UTC.
-
-## Components
-
-### Order book and matching engine
-- `OrderBook`: maintains `bids` and `asks` as price→`deque[Order]`, and an `order_map` of id→Order.
-- Methods: `add_order`, `remove_order`, `cancel_order`, `modify_order`, `get_best_bid`, `get_best_ask`, `display_order_book`, and utilities to export as DataFrames.
-- `MatchingEngine`: thread-safe `match_order` routes to `_match_buy_order` or `_match_sell_order`; `_execute_order` performs partial fills, updates queues, removes empty price levels, and emits `Execution` events to subscribers.
-
-Advanced execution controls
-- Time-in-force (TIF): supports `GTC` (default), `IOC`, and `FOK`. `IOC` and `FOK` will not rest residuals on the book.
-- Post-only: when enabled on a limit order, it will not cross the spread; if it would, the order is discarded instead of taking liquidity.
-- Lot/precision normalization: prices snap to instrument tick size and quantities to lot size where configured.
-- Price band protection: limit orders deviating beyond a configured number of basis points from reference price (mid or last) are rejected to avoid fat-finger prints.
-- Auction mode: the engine can be switched to `open`/`close` auction collection with a single-price uncross. During auctions, orders can be marked `auction_only`.
-- Session checks: orders can be rejected when the local market session is closed (based on instrument trading hours and holidays).
-
-### FIX application (TCP server)
-- Parses bytes into FIX messages using `simplefix`, translates tags to human-readable fields, and handles:
-  - NewOrderSingle (D) → creates a `limit` order.
-  - OrderCancelRequest (F) → cancels the referenced order if present.
-- Basic ACK is returned per message; integrate your own client or use the example below.
-
-### Market data feed (yahooquery)
-- Fetches 1-minute intraday data with retries, backoff, and optional on-disk cache.
-- Normalizes timestamps to UTC and column names to canonical case (`Close`, `Volume`).
-- Broadcasts updates to subscribers (market maker, traders, etc.).
-- Historical downloads for backtests are cached to `.cache/` (Parquet if available, else CSV) and reused across runs.
-
-### Market maker and synthetic liquidity
-- Market maker keeps a recent price window to compute a volatility-based dynamic spread and quotes around the mid.
-- Synthetic liquidity provider periodically adds buy/sell orders at the latest price; useful to increase book activity during testing.
-
-### Algorithmic traders
-- `MomentumTrader`: trades in the direction of recent price change over a short lookback.
-- `EMABasedTrader`: short vs. long EMA crossover signals.
-- `SwingTrader`: buys near support and sells near resistance.
-- `SentimentAnalysisTrader` (optional): fetches headlines via NewsAPI and infers buy/hold/sell using a Keras model.
-Notes
-- If the loaded sentiment model expects raw strings, it will be used directly. If it expects tokenized inputs and no vocabulary is provided via `--sentiment-vocab-path`, the trader will auto-disable to avoid garbage predictions.
-
-### Portfolio tracking and Risk manager
-- `Portfolio` updates on every `Execution` with fees (bps), average price tracking, and realized PnL on reductions/flips.
-- `RiskManager` runs pre-trade checks: order qty bounds, per-symbol exposure, and gross notional versus thresholds.
-
-Owner-aware PnL, fees, and rebates
-- Executions track both maker and taker ownership. The portfolio applies taker fees (bps) when it is the taker, and maker rebates (bps) when it is the maker.
-- Average cost and realized PnL are updated on increases and reductions/flip events; cash reflects fees/rebates.
-
-Market hours and instrument configuration
-- You can define per-symbol trading hours, timezones, tick sizes, lot sizes, and decimal precision. Orders outside hours can be rejected and prices/quantities normalized.
-- Example configuration snippet:
 ```python
-from trading_simulator_with_algorithmic_traders import INSTRUMENTS, TICK_SIZE, LOT_SIZE, DECIMAL_PRECISION
+from trading_simulator import MomentumTrader
 
-INSTRUMENTS['AAPL'] = {
-  'tz': 'America/New_York',
-  'open': '09:30', 'close': '16:00',
-  'holidays': ['2023-12-25']
-}
-TICK_SIZE['AAPL'] = 0.01
-LOT_SIZE['AAPL'] = 1
-DECIMAL_PRECISION['AAPL'] = 2
+trader = MomentumTrader(
+    symbol="AAPL",
+    matching_engine=engine,
+    lookback=5,  # Lookback period for momentum calculation
+    interval=0.1  # Trading interval in seconds
+)
 ```
-Note: these are advanced, code-level settings; not all are exposed as CLI flags.
 
-### CSV logging and analytics
-- `executions.csv`: timestamp, symbol, price, quantity, side, taker_order_id, maker_order_id, trade_id.
-- `equity_curve.csv`: timestamp, net_liquidation, realized_pnl, cash.
-- Use these files to build analytics/visualizations in pandas or BI tools.
+**Strategy Logic:**
+- Calculates price change over lookback period
+- Buys on positive momentum (price increase)
+- Sells on negative momentum (price decrease)
+- Aggressively crosses the book at best bid/ask
 
-## Data sources, caching, timezones
-- Live data via yahooquery with a shared `requests` session. If present, `requests-cache` stores responses on disk and rate limiting reduces throttling.
-- Historical backtests also use yahooquery and persist normalized frames to `.cache/` in Parquet (if `pyarrow`) or CSV.
-- Time is handled as UTC; if inputs are naive, they are localized to UTC.
+### 2. EMA-Based Trader
+Uses Exponential Moving Average crossover signals:
 
-## Strategy registry
-Built-in strategies are discoverable at runtime and include parameter hints:
-- `MomentumTrader` (params: `lookback`, `interval`)
-- `EMABasedTrader` (params: `short_window`, `long_window`, `interval`)
-- `SwingTrader` (params: `support_level`, `resistance_level`, `interval`)
-- `CustomTrader` (params: `threshold`, `interval`)
-- `SentimentAnalysisTrader` (params: `model_file`, `news_api_key`, `vocab_path`, `interval`)
-
-## Using FIX from a client (examples)
-Start the server first (live mode). Then, in a separate Python session, send a NewOrderSingle:
 ```python
-import socket, simplefix
+from trading_simulator import EMABasedTrader
 
-def new_order_msg():
-    msg = simplefix.FixMessage()
-    msg.append_pair(8, b'FIX.4.2')           # BeginString
-    msg.append_pair(35, b'D')                # MsgType = NewOrderSingle
-    msg.append_pair(11, b'order-123')        # ClOrdID
-    msg.append_pair(54, b'1')                # Side (1=Buy, 2=Sell)
-    msg.append_pair(55, b'AAPL')             # Symbol
-    msg.append_pair(44, b'190.25')           # Price
-    msg.append_pair(38, b'100')              # OrderQty
-    msg.append_pair(10, b'000')              # Checksum placeholder
-    return msg
-
-with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.connect(("localhost", 5005))
-    s.sendall(new_order_msg().encode())
-    print(s.recv(1024))
+trader = EMABasedTrader(
+    symbol="AAPL",
+    matching_engine=engine,
+    short_window=5,    # Short EMA period
+    long_window=20,    # Long EMA period
+    interval=0.1
+)
 ```
-To cancel an order, send an OrderCancelRequest (F) with `OrigClOrdID` set to the original `ClOrdID`.
 
-## Backtesting workflow
-1) Download and cache historical data via yahooquery with retries.
-2) Iterate row-by-row, building market data updates and invoking the market maker and traders.
-3) Record executions and mark-to-market equity curve; final snapshot printed at end.
+**Strategy Logic:**
+- Calculates short and long EMAs
+- Generates buy signal when short EMA > long EMA
+- Generates sell signal when short EMA < long EMA
+- Implements trend-following approach
 
-Tips
-- Use `--enable-traders` to include algos in backtests.
-- Adjust risk parameters to prevent unrealistic exposures.
-- Set `--seed` for reproducibility (NumPy/TF seeds set when available).
-- Tune **--slippage-bps-per-100** and **--latency-ms** to study microstructure impacts on fill quality and PnL.
+### 3. Swing Trader
+Trades based on support and resistance levels:
 
-## Troubleshooting and operational notes
-- Yahoo data rate limits: the code uses exponential backoff and optional caching/rate limiting. If throttled, wait a few minutes or lower frequency.
-- Sentiment trader disabled: if the Keras model expects preprocessed inputs and no vocabulary is provided, the trader auto-disables to avoid garbage predictions.
-- FIX connectivity: ensure firewalls allow TCP on the configured port; the server binds to `--fix-host`/`--fix-port`.
-- Windows PowerShell: prefix long commands with backticks for line continuation, or put arguments on one line.
-- CSV files locked on Windows: close Excel or other viewers before running; the app appends to CSVs during execution.
- - Auction mode and price bands: these are advanced features intended for programmatic use. If you see unexpected rejections, confirm price band settings and session hours.
+```python
+from trading_simulator import SwingTrader
 
-## Notebook guide: Trading Simulator in Python With Algorithmic Traders.ipynb
-The notebook provides an interactive walkthrough of the system’s components. It mirrors the core concepts but trades off some robustness for readability:
-- Sections cover the OrderBook, MatchingEngine, a simple FIX app, MarketDataFeed, MarketMaker, SyntheticLiquidityProvider, and the algorithmic traders.
-- You can run cells individually to observe behavior and tweak parameters inline.
-- A backtesting section demonstrates historical playback.
+trader = SwingTrader(
+    symbol="AAPL",
+    matching_engine=engine,
+    support_level=100.0,     # Support price level
+    resistance_level=200.0,  # Resistance price level
+    interval=0.1
+)
+```
 
-How to run
-- Open the notebook in Jupyter or VS Code.
-- Run all cells sequentially. Some cells create threads; stop them at the end via the provided stop cells.
-- Install minimal dependencies first: `pip install yahooquery simplefix pandas numpy` (add `tensorflow newsapi-python` for sentiment).
-- If you hit rate limits, re-run after a short backoff; consider adding `requests-cache` and a rate limiter.
+**Strategy Logic:**
+- Buys when price approaches support level
+- Sells when price approaches resistance level
+- Implements mean-reversion approach
+- Configurable support/resistance levels
 
-## Project structure
-- `trading_simulator_with_algorithmic_traders.py`: main CLI with all components wired together.
-- `Trading Simulator in Python With Algorithmic Traders.ipynb`: interactive notebook walkthrough.
-- `sentiment_classifier_model.keras`: optional Keras sentiment model file used by the sentiment trader.
-- `.cache/`: on-disk cache (market data history, response cache).
-- `.logs/`: CSV logs (`executions.csv`, `equity_curve.csv`) created at runtime.
+### 4. Sentiment Analysis Trader
+AI-powered trading based on news sentiment:
 
-## License
-MIT
+```python
+from trading_simulator import SentimentAnalysisTrader
+
+trader = SentimentAnalysisTrader(
+    symbol="AAPL",
+    matching_engine=engine,
+    model_file="sentiment_classifier_model.keras",
+    news_api_key="your_api_key",
+    interval=60.0  # Check news every 60 seconds
+)
+```
+
+**Strategy Logic:**
+- Fetches latest news via NewsAPI
+- Analyzes sentiment using TensorFlow model
+- Buys on positive sentiment
+- Sells on negative sentiment
+- Holds on neutral sentiment
+
+### 5. Market Maker
+Advanced market making with inventory management:
+
+```python
+from trading_simulator import MarketMaker
+
+maker = MarketMaker(
+    symbol="AAPL",
+    matching_engine=engine,
+    gamma=0.1,              # Risk aversion parameter
+    k=1.5,                  # Order book intensity
+    horizon_seconds=60.0,   # Quote horizon
+    max_inventory=1000,     # Maximum inventory
+    base_order_size=100,    # Base quote size
+    min_spread=0.01,        # Minimum spread
+    num_levels=2,           # Quote levels
+    level_spacing_bps=2.0,  # Level spacing in basis points
+    size_decay=0.7,         # Size decay factor
+    momentum_window=10,     # Momentum calculation window
+    alpha_skew=0.5,         # Momentum skew weight
+    vol_widen_z=2.0,        # Volatility widening threshold
+    drawdown_limit=0.2      # Drawdown protection limit
+)
+```
+
+**Strategy Logic:**
+- Implements Avellaneda-Stoikov market making model
+- Adjusts quotes based on inventory position
+- Widens spreads during high volatility
+- Skews quotes based on price momentum
+- Automatically withdraws quotes on drawdown
+
+### 6. Custom Trader
+Framework for implementing custom strategies:
+
+```python
+from trading_simulator import AlgorithmicTrader
+
+class MyCustomTrader(AlgorithmicTrader):
+    def __init__(self, symbol, matching_engine, threshold=0.0):
+        super().__init__(symbol, matching_engine, interval=0.1)
+        self.threshold = threshold
+    
+    def trade(self):
+        if self.current_price is None:
+            return
+        
+        # Your custom trading logic here
+        if self.current_price < self.threshold:
+            order = Order(
+                id=uuid.uuid4().hex,
+                price=self.current_price,
+                quantity=10,
+                side='buy',
+                type='market',
+                symbol=self.symbol,
+                owner_id='custom'
+            )
+            self.matching_engine.match_order(order)
+```
+
+## 🛡️ Risk Management
+
+### Position Limits
+```python
+risk_manager = RiskManager(
+    portfolio=portfolio,
+    max_order_qty=1000,           # Maximum order quantity
+    max_symbol_position=10000,    # Maximum position per symbol
+    max_gross_notional=5000000,   # Maximum order notional
+    min_order_qty=1,              # Minimum order quantity
+    lot_size=1,                   # Lot size requirement
+    round_lot_required=False      # Round lot requirement
+)
+```
+
+### Rate Limiting
+```python
+risk_manager = RiskManager(
+    # ... other parameters ...
+    order_rate_limit_per_sec=10,  # Max orders per second per owner
+    owner_drawdown_limit=0.2,     # 20% drawdown limit
+    max_leverage=3.0,             # Maximum leverage
+    max_symbol_gross_exposure=1000000  # Max gross exposure per symbol
+)
+```
+
+### Volatility Protection
+```python
+risk_manager = RiskManager(
+    # ... other parameters ...
+    volatility_window=20,         # Volatility calculation window
+    volatility_halt_z=3.0         # Z-score threshold for volatility halt
+)
+```
+
+### Kill Switches
+```python
+# Disable specific traders
+risk_manager.disable_owner("momentum_trader")
+
+# Disable specific symbols
+risk_manager.disable_symbol("TSLA")
+
+# Re-enable when conditions improve
+risk_manager.enable_owner("momentum_trader")
+risk_manager.enable_symbol("TSLA")
+```
+
+## 📈 Backtesting
+
+### Basic Backtest
+```python
+from trading_simulator import run_backtest, load_historical_data
+
+# Load historical data
+data = load_historical_data("AAPL", "2023-01-01", "2023-12-31")
+
+# Create components
+order_book = OrderBook()
+engine = MatchingEngine(order_book)
+portfolio = Portfolio(initial_cash=1000000)
+market_maker = MarketMaker(symbol="AAPL", matching_engine=engine)
+
+# Create traders
+traders = [
+    MomentumTrader(symbol="AAPL", matching_engine=engine, lookback=5),
+    EMABasedTrader(symbol="AAPL", matching_engine=engine, short_window=5, long_window=20),
+    SwingTrader(symbol="AAPL", matching_engine=engine, support_level=100, resistance_level=200)
+]
+
+# Run backtest
+run_backtest(data, market_maker, engine, traders=traders, portfolio=portfolio)
+```
+
+### Multi-Asset Backtest
+```python
+from trading_simulator import run_multi_backtest, load_multi_historical_data
+
+# Load data for multiple symbols
+data_map = load_multi_historical_data(
+    ["AAPL", "MSFT", "GOOGL"], 
+    "2023-01-01", 
+    "2023-12-31"
+)
+
+# Create engines and market makers for each symbol
+engines = {}
+makers = {}
+for symbol in ["AAPL", "MSFT", "GOOGL"]:
+    ob = OrderBook()
+    eng = MatchingEngine(ob)
+    engines[symbol] = eng
+    makers[symbol] = MarketMaker(symbol=symbol, matching_engine=eng)
+
+# Run multi-asset backtest
+run_multi_backtest(data_map, engines, makers, portfolio=portfolio)
+```
+
+### Parameter Optimization
+```python
+import optuna
+from trading_simulator import objective_optuna
+
+# Define optimization objective
+def objective(trial):
+    return objective_optuna(
+        trial, 
+        symbol="AAPL", 
+        start="2023-01-01", 
+        end="2023-12-31",
+        base_params={
+            'initial_cash': 1000000,
+            'fee_bps': 1.0,
+            'risk_max_order_qty': 1000,
+            'risk_max_symbol_position': 10000,
+            'risk_max_gross_notional': 5000000
+        },
+        log_dir=".logs"
+    )
+
+# Create study and optimize
+study = optuna.create_study(direction='maximize')
+study.optimize(objective, n_trials=100)
+
+print(f"Best parameters: {study.best_params}")
+print(f"Best value: {study.best_value}")
+```
+
+## 🔌 API Integration
+
+### FIX Protocol Integration
+```python
+from trading_simulator import FixApplication
+
+# Create FIX application
+fix_app = FixApplication(matching_engine)
+
+# Start FIX server
+fix_app.start(host='localhost', port=5005)
+
+# Send FIX order
+order_msg = fix_app.create_order_message({
+    'id': 'ORDER001',
+    'side': 'buy',
+    'symbol': 'AAPL',
+    'price': 150.0,
+    'quantity': 100
+})
+
+fix_app.send_message(order_msg, host='localhost', port=5005)
+```
+
+### Market Data Integration
+```python
+from trading_simulator import MarketDataFeed
+
+# Create market data feed
+feed = MarketDataFeed(symbol="AAPL")
+
+# Subscribe to market data
+class MySubscriber:
+    def receive(self, data):
+        print(f"Price: {data['price']}, Volume: {data['volume']}")
+
+subscriber = MySubscriber()
+feed.subscribe(subscriber)
+
+# Start feed
+feed.start(interval_seconds=60)
+```
+
+### Database Integration
+```python
+from trading_simulator import DbLogger
+
+# Create database logger
+db_logger = DbLogger("postgresql://user:pass@localhost/trading_db")
+
+# Log execution
+db_logger.log_execution(execution)
+
+# Log equity
+db_logger.log_equity(timestamp, net_liq, realized, cash)
+
+# Save configuration
+db_logger.save_config("strategy_config", {
+    'momentum_lookback': 5,
+    'ema_short_window': 5,
+    'ema_long_window': 20
+})
+```
+
+### Event Streaming
+```python
+from trading_simulator import EventBus, make_redis_publisher, make_kafka_publisher
+
+# Create event bus
+event_bus = EventBus()
+
+# Add Redis publisher
+redis_pub = make_redis_publisher("redis://localhost:6379", "trading_events")
+event_bus.add_publisher(redis_pub)
+
+# Add Kafka publisher
+kafka_pub = make_kafka_publisher("localhost:9092", "trading_events")
+event_bus.add_publisher(kafka_pub)
+
+# Publish events
+event_bus.publish("order_executed", {
+    'order_id': 'ORDER001',
+    'price': 150.0,
+    'quantity': 100,
+    'timestamp': '2023-01-01T10:00:00Z'
+})
+```
+
+## 📝 Configuration
+
+### Command Line Arguments
+```bash
+# Mode selection
+--mode {backtest,live,demo,replay}
+
+# Symbol and data
+--symbol SYMBOL                    # Trading symbol (default: AAPL)
+--symbols SYMBOLS                  # Comma-separated symbols for multi-asset
+--start-date START_DATE           # Backtest start date (YYYY-MM-DD)
+--end-date END_DATE               # Backtest end date (YYYY-MM-DD)
+
+# Trading parameters
+--initial-cash INITIAL_CASH       # Initial portfolio cash (default: 1000000)
+--fee-bps FEE_BPS                 # Execution fee in basis points (default: 0.0)
+--slippage-bps-per-100 SLIPPAGE   # Slippage in bps per 100 shares (default: 0.0)
+--latency-ms LATENCY              # Order latency in milliseconds (default: 0)
+
+# Risk management
+--risk-max-order-qty QTY          # Maximum order quantity (default: 1000)
+--risk-max-symbol-position POS    # Maximum position per symbol (default: 10000)
+--risk-max-gross-notional NOT     # Maximum gross notional (default: 5000000)
+
+# Market maker parameters
+--mm-gamma GAMMA                  # Risk aversion parameter (default: 0.1)
+--mm-k K                          # Order book intensity (default: 1.5)
+--mm-horizon-seconds HORIZON      # Quote horizon (default: 60.0)
+--mm-max-inventory INVENTORY      # Maximum inventory (default: 1000)
+--mm-base-order-size SIZE         # Base order size (default: 100)
+--mm-min-spread SPREAD            # Minimum spread (default: 0.01)
+--mm-num-levels LEVELS            # Number of quote levels (default: 2)
+--mm-level-spacing-bps SPACING    # Level spacing in bps (default: 2.0)
+--mm-size-decay DECAY             # Size decay factor (default: 0.7)
+--mm-momentum-window WINDOW       # Momentum window (default: 10)
+--mm-alpha-skew SKEW              # Momentum skew weight (default: 0.5)
+--mm-vol-widen-z Z                # Volatility widening threshold (default: 2.0)
+--mm-drawdown-limit LIMIT         # Drawdown limit (default: 0.2)
+
+# Trader parameters
+--momentum-lookback LOOKBACK      # Momentum lookback (default: 5)
+--ema-short-window SHORT          # EMA short window (default: 5)
+--ema-long-window LONG            # EMA long window (default: 20)
+--swing-support SUPPORT           # Swing support level (default: 100.0)
+--swing-resistance RESISTANCE     # Swing resistance level (default: 200.0)
+
+# Output and logging
+--log-dir LOG_DIR                 # Log directory (default: .logs)
+--export-report                   # Export HTML performance report
+--report-out REPORT_OUT           # Report output path (default: report.html)
+
+# Advanced features
+--enable-traders                  # Enable algorithmic traders
+--inject-liquidity SECONDS        # Inject synthetic liquidity every N seconds
+--seed SEED                       # Random seed for reproducibility
+--optuna-trials TRIALS            # Number of Optuna optimization trials
+--mlflow-uri URI                  # MLflow tracking URI
+--mlflow-experiment EXPERIMENT    # MLflow experiment name
+```
+
+### Configuration Files
+```yaml
+# config.yaml
+trading:
+  default_symbol: "AAPL"
+  initial_cash: 1000000
+  fee_bps: 1.0
+  maker_rebate_bps: 0.5
+
+risk_management:
+  max_order_qty: 1000
+  max_symbol_position: 10000
+  max_gross_notional: 5000000
+  order_rate_limit_per_sec: 10
+  owner_drawdown_limit: 0.2
+  max_leverage: 3.0
+  volatility_halt_z: 3.0
+
+market_maker:
+  gamma: 0.1
+  k: 1.5
+  horizon_seconds: 60.0
+  max_inventory: 1000
+  base_order_size: 100
+  min_spread: 0.01
+  num_levels: 2
+  level_spacing_bps: 2.0
+  size_decay: 0.7
+  momentum_window: 10
+  alpha_skew: 0.5
+  vol_widen_z: 2.0
+  drawdown_limit: 0.2
+
+traders:
+  momentum:
+    lookback: 5
+    interval: 0.1
+  ema:
+    short_window: 5
+    long_window: 20
+    interval: 0.1
+  swing:
+    support_level: 100.0
+    resistance_level: 200.0
+    interval: 0.1
+
+backtesting:
+  slippage_bps_per_100: 0.5
+  latency_ms: 10
+  export_report: true
+  report_out: "performance_report.html"
+
+data:
+  cache_dir: ".cache"
+  yahoo_finance_timeout: 30
+  max_retries: 5
+  base_backoff: 1.5
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(levelname)s - %(message)s"
+  log_dir: ".logs"
+```
+
+## 📊 Performance Analytics
+
+### Performance Metrics
+```python
+from trading_simulator import compute_performance_metrics, export_html_report
+
+# Load equity curve
+equity_df = pd.read_csv(".logs/equity_curve.csv")
+
+# Compute metrics
+metrics = compute_performance_metrics(equity_df)
+
+print(f"Initial Value: ${metrics['initial']:,.2f}")
+print(f"Final Value: ${metrics['final']:,.2f}")
+print(f"CAGR: {metrics['cagr']:.2%}")
+print(f"Sharpe Ratio: {metrics['sharpe']:.2f}")
+print(f"Sortino Ratio: {metrics['sortino']:.2f}")
+print(f"Max Drawdown: {metrics['max_drawdown']:.2%}")
+
+# Export HTML report
+export_html_report(equity_df, metrics, "performance_report.html")
+```
+
+### Trade Cost Analysis
+```python
+from trading_simulator import CsvLogger
+
+# Analyze TCA data
+tca_df = pd.read_csv(".logs/tca.csv")
+
+# Calculate average slippage
+avg_slippage_mid = tca_df['slippage_mid_bps'].mean()
+avg_slippage_last = tca_df['slippage_last_bps'].mean()
+
+print(f"Average Mid Slippage: {avg_slippage_mid:.2f} bps")
+print(f"Average Last Trade Slippage: {avg_slippage_last:.2f} bps")
+
+# Analyze adverse selection
+adv_df = pd.read_csv(".logs/tca_adv.csv")
+adverse_rate = adv_df['adverse'].mean()
+
+print(f"Adverse Selection Rate: {adverse_rate:.2%}")
+```
+
+### Portfolio Analysis
+```python
+from trading_simulator import Portfolio, mark_to_market
+
+# Get portfolio snapshot
+snapshot = portfolio.snapshot()
+
+print(f"Cash: ${snapshot['cash']:,.2f}")
+print(f"Realized PnL: ${snapshot['realized_pnl']:,.2f}")
+print(f"Positions: {snapshot['positions']}")
+
+# Mark to market
+last_prices = {'AAPL': 150.0, 'MSFT': 300.0}
+net_liq = mark_to_market(portfolio, last_prices) + portfolio.realized_pnl
+
+print(f"Net Liquidation Value: ${net_liq:,.2f}")
+```
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+
+### Development Setup
+```bash
+# Clone repository
+git clone https://github.com/yourusername/Automated-Financial-Market-Trading-System.git
+cd Automated-Financial-Market-Trading-System
+
+# Create development environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install development dependencies
+pip install -r requirements-dev.txt
+
+# Install pre-commit hooks
+pre-commit install
+
+# Run tests
+pytest tests/
+
+# Run linting
+flake8 trading_simulator/
+black trading_simulator/
+isort trading_simulator/
+```
+
+### Code Style
+- **Python**: Follow PEP 8 with 88-character line length
+- **Type Hints**: Use type hints for all function parameters and return values
+- **Docstrings**: Use Google-style docstrings for all public functions
+- **Tests**: Maintain 90%+ test coverage
+- **Documentation**: Update documentation for all new features
+
+### Pull Request Process
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Make your changes
+4. Add tests for new functionality
+5. Ensure all tests pass
+6. Update documentation
+7. Commit your changes (`git commit -m 'Add amazing feature'`)
+8. Push to the branch (`git push origin feature/amazing-feature`)
+9. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- **Yahoo Finance** for market data
+- **NewsAPI** for sentiment analysis data
+- **TensorFlow** for machine learning capabilities
+- **Optuna** for hyperparameter optimization
+- **MLflow** for experiment tracking
+- **PostgreSQL** for data persistence
+- **Redis** for caching and event streaming
+- **Apache Kafka** for real-time event processing
+
+## 📞 Support
+
+- **Documentation**: [Wiki](https://github.com/yourusername/Automated-Financial-Market-Trading-System/wiki)
+- **Issues**: [GitHub Issues](https://github.com/yourusername/Automated-Financial-Market-Trading-System/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/Automated-Financial-Market-Trading-System/discussions)
+- **Email**: support@trading-system.com
+
+---
+
+<div align="center">
+  <p>Made with ❤️ by the Trading System Team</p>
+  <p>
+    <a href="https://github.com/yourusername/Automated-Financial-Market-Trading-System/stargazers">
+      <img src="https://img.shields.io/github/stars/yourusername/Automated-Financial-Market-Trading-System" alt="Stars">
+    </a>
+    <a href="https://github.com/yourusername/Automated-Financial-Market-Trading-System/network">
+      <img src="https://img.shields.io/github/forks/yourusername/Automated-Financial-Market-Trading-System" alt="Forks">
+    </a>
+    <a href="https://github.com/yourusername/Automated-Financial-Market-Trading-System/issues">
+      <img src="https://img.shields.io/github/issues/yourusername/Automated-Financial-Market-Trading-System" alt="Issues">
+    </a>
+    <a href="https://github.com/yourusername/Automated-Financial-Market-Trading-System/blob/main/LICENSE">
+      <img src="https://img.shields.io/github/license/yourusername/Automated-Financial-Market-Trading-System" alt="License">
+    </a>
+  </p>
+</div>

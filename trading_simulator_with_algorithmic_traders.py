@@ -33,6 +33,8 @@ import time
 import uuid
 import math
 from typing import Any, Deque, Dict, List, Optional, Tuple, Callable
+import sys
+import importlib
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -538,10 +540,30 @@ class OrderBook:
         logging.info(f"Order {order_id} has been modified.")
 
     def get_best_bid(self) -> Optional[float]:
-        return self._bid_prices[0] if self._bid_prices else None
+        # Return highest bid price, cleaning up any stale price levels
+        while self._bid_prices:
+            top = self._bid_prices[0]
+            if top in self.bids and self.bids.get(top):
+                return top
+            # stale level with no queue; remove
+            try:
+                self._bid_prices.pop(0)
+            except Exception:
+                break
+        return None
 
     def get_best_ask(self) -> Optional[float]:
-        return self._ask_prices[0] if self._ask_prices else None
+        # Return lowest ask price, cleaning up any stale price levels
+        while self._ask_prices:
+            top = self._ask_prices[0]
+            if top in self.asks and self.asks.get(top):
+                return top
+            # stale level with no queue; remove
+            try:
+                self._ask_prices.pop(0)
+            except Exception:
+                break
+        return None
 
     def bids_to_dataframe(self) -> pd.DataFrame:
         rows: List[Dict[str, Any]] = []
@@ -1061,11 +1083,35 @@ class MatchingEngine:
         # For market orders, treat limit as infinite to cross all available asks
         effective_limit = order.price if order.type == 'limit' else math.inf
         filled_any = False
-        while order.quantity > 0 and self.order_book.get_best_ask() is not None:
-            best_ask_price = self.order_book.get_best_ask()
-            logging.info(f"Best ask price: {best_ask_price}, Incoming buy order price: {order.price}")
-            if best_ask_price is not None and effective_limit >= best_ask_price:
-                logging.info(f"Executing buy order at price {best_ask_price}")
+        iters = 0
+        while order.quantity > 0:
+            iters += 1
+            if iters > 100000:
+                logging.warning("Buy match loop iteration cap reached; breaking to avoid runaway.")
+                break
+            # Find best ask that has at least one contra owner (not the taker)
+            best_ask_price = None
+            for px in list(self.order_book._ask_prices):
+                q = self.order_book.asks.get(px)
+                if not q:
+                    continue
+                # Ensure there's a different owner at this price level
+                has_contra = False
+                for resting in q:
+                    try:
+                        if getattr(resting, 'owner_id', None) != getattr(order, 'owner_id', None) and getattr(resting, 'quantity', 0) > 0:
+                            has_contra = True
+                            break
+                    except Exception:
+                        continue
+                if has_contra:
+                    best_ask_price = px
+                    break
+            if best_ask_price is None:
+                break
+            logging.debug(f"Best ask price: {best_ask_price}, Incoming buy order price: {order.price}")
+            if effective_limit >= best_ask_price:
+                logging.debug(f"Executing buy order at price {best_ask_price}")
                 order = self._execute_order(order, best_ask_price, 'sell')
                 filled_any = True
             else:
@@ -1085,11 +1131,34 @@ class MatchingEngine:
         # For market orders, treat limit as zero to cross all available bids
         effective_limit = order.price if order.type == 'limit' else 0.0
         filled_any = False
-        while order.quantity > 0 and self.order_book.get_best_bid() is not None:
-            best_bid_price = self.order_book.get_best_bid()
-            logging.info(f"Best bid price: {best_bid_price}, Incoming sell order price: {order.price}")
-            if best_bid_price is not None and effective_limit <= best_bid_price:
-                logging.info(f"Executing sell order at price {best_bid_price}")
+        iters = 0
+        while order.quantity > 0:
+            iters += 1
+            if iters > 100000:
+                logging.warning("Sell match loop iteration cap reached; breaking to avoid runaway.")
+                break
+            # Find best bid that has at least one contra owner (not the taker)
+            best_bid_price = None
+            for px in list(self.order_book._bid_prices):
+                q = self.order_book.bids.get(px)
+                if not q:
+                    continue
+                has_contra = False
+                for resting in q:
+                    try:
+                        if getattr(resting, 'owner_id', None) != getattr(order, 'owner_id', None) and getattr(resting, 'quantity', 0) > 0:
+                            has_contra = True
+                            break
+                    except Exception:
+                        continue
+                if has_contra:
+                    best_bid_price = px
+                    break
+            if best_bid_price is None:
+                break
+            logging.debug(f"Best bid price: {best_bid_price}, Incoming sell order price: {order.price}")
+            if effective_limit <= best_bid_price:
+                logging.debug(f"Executing sell order at price {best_bid_price}")
                 order = self._execute_order(order, best_bid_price, 'buy')
                 filled_any = True
             else:
@@ -1697,6 +1766,98 @@ class CsvLogger:
         except Exception as exc:
             logging.warning("Failed to write equity log (%s): %s", self.equity_path, exc)
 
+    def compute_periodic_metrics(self, lookback: int = 50) -> Optional[Dict[str, float]]:
+        try:
+            if not os.path.exists(self.equity_path):
+                return None
+            df = pd.read_csv(self.equity_path)
+            if df.empty or 'net_liquidation' not in df.columns:
+                return None
+            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True, errors='coerce')
+            df = df.dropna(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)
+            series = df['net_liquidation'].astype(float)
+            if len(series) < 2:
+                return None
+            tail = series.tail(int(max(2, lookback)))
+            rets = tail.pct_change().dropna()
+            mean = float(rets.mean()) if not rets.empty else 0.0
+            std = float(rets.std(ddof=0)) if not rets.empty else 0.0
+            downside = rets[rets < 0] if not rets.empty else pd.Series([], dtype=float)
+            downside_std = float(downside.std(ddof=0)) if not downside.empty else 0.0
+            sharpe = float((mean / std) * (252 ** 0.5)) if std > 0 else float('nan')
+            sortino = float((mean / downside_std) * (252 ** 0.5)) if downside_std > 0 else float('nan')
+            vol_ann = float(std * (252 ** 0.5)) if std > 0 else 0.0
+            # Drawdowns (use full series for stability)
+            roll_max = series.cummax()
+            dd = (series / roll_max - 1.0)
+            drawdown_cur = float(dd.iloc[-1])
+            drawdown_max = float(dd.min())
+            # CAGR approx using first/last and elapsed time
+            try:
+                t0 = pd.to_datetime(df['timestamp'].iloc[0], utc=True)
+                t1 = pd.to_datetime(df['timestamp'].iloc[-1], utc=True)
+                years = max(1e-9, (t1 - t0).total_seconds() / (365.25 * 24 * 3600))
+                initial = float(series.iloc[0])
+                final = float(series.iloc[-1])
+                cagr = float((final / initial) ** (1.0 / years) - 1.0) if initial > 0 else float('nan')
+            except Exception:
+                cagr = float('nan')
+            # Executions summary
+            trades = buys = sells = 0
+            notional = 0.0
+            avg_qty = float('nan')
+            try:
+                if os.path.exists(self.exec_path):
+                    ex = pd.read_csv(self.exec_path)
+                    if not ex.empty:
+                        trades = int(len(ex))
+                        if 'side' in ex.columns:
+                            buys = int((ex['side'] == 'buy').sum())
+                            sells = int((ex['side'] == 'sell').sum())
+                        if {'price', 'quantity'} <= set(ex.columns):
+                            notional = float((ex['price'].astype(float).abs() * ex['quantity'].astype(float).abs()).sum())
+                            avg_qty = float(ex['quantity'].astype(float).abs().mean())
+            except Exception:
+                pass
+            # TCA summary
+            slip_bps = float('nan')
+            adverse_rate = float('nan')
+            try:
+                if os.path.exists(self.tca_path):
+                    tca = pd.read_csv(self.tca_path)
+                    if not tca.empty and 'slippage_mid_bps' in tca.columns:
+                        s = pd.to_numeric(tca['slippage_mid_bps'], errors='coerce').dropna()
+                        if not s.empty:
+                            slip_bps = float(s.mean())
+                if os.path.exists(self.tca_adv_path):
+                    adv = pd.read_csv(self.tca_adv_path)
+                    if not adv.empty and 'adverse' in adv.columns:
+                        a = pd.to_numeric(adv['adverse'], errors='coerce').dropna()
+                        if not a.empty:
+                            adverse_rate = float(a.mean())
+            except Exception:
+                pass
+            return {
+                'net_liquidation': float(series.iloc[-1]),
+                'realized_pnl': float(df['realized_pnl'].astype(float).iloc[-1]) if 'realized_pnl' in df.columns else 0.0,
+                'cash': float(df['cash'].astype(float).iloc[-1]) if 'cash' in df.columns else 0.0,
+                'sharpe_ann': sharpe,
+                'sortino_ann': sortino,
+                'vol_ann': vol_ann,
+                'drawdown_cur': drawdown_cur,
+                'drawdown_max': drawdown_max,
+                'cagr': cagr,
+                'trades': float(trades),
+                'buys': float(buys),
+                'sells': float(sells),
+                'notional': float(notional),
+                'avg_trade_qty': avg_qty,
+                'slippage_mid_bps_avg': slip_bps,
+                'adverse_rate': adverse_rate,
+            }
+        except Exception:
+            return None
+
     def log_tca(self, timestamp: pd.Timestamp, symbol: str, side: str, price: float, mid: Optional[float], last_trade: Optional[float],
                 slip_mid_bps: Optional[float], slip_last_bps: Optional[float]) -> None:
         try:
@@ -1730,7 +1891,7 @@ class AuditLogger:
 
     def log_new_order(self, order: "Order") -> None:
         self._write({
-            "ts": pd.Timestamp.utcnow().tz_localize('UTC').isoformat(),
+            "ts": pd.Timestamp.now(tz='UTC').isoformat(),
             "event": "order_accepted",
             "order_id": order.id,
             "symbol": order.symbol,
@@ -1744,7 +1905,7 @@ class AuditLogger:
 
     def log_cancel(self, order_id: str) -> None:
         self._write({
-            "ts": pd.Timestamp.utcnow().tz_localize('UTC').isoformat(),
+            "ts": pd.Timestamp.now(tz='UTC').isoformat(),
             "event": "order_cancel",
             "order_id": order_id,
         })
@@ -1793,7 +1954,7 @@ class EventLogger:
         try:
             self._seq += 1
             with open(self.events_path, 'a', encoding='utf-8') as f:
-                f.write(f"{self._seq},{pd.Timestamp.utcnow().tz_localize('UTC').isoformat()},NEW,{order.id},{order.symbol},{order.side},{order.type},{order.price},{order.quantity},owner={getattr(order,'owner_id','')}\n")
+                f.write(f"{self._seq},{pd.Timestamp.now(tz='UTC').isoformat()},NEW,{order.id},{order.symbol},{order.side},{order.type},{order.price},{order.quantity},owner={getattr(order,'owner_id','')}\n")
         except Exception as exc:
             logging.debug("Event log (new) skipped: %s", exc)
 
@@ -1801,7 +1962,7 @@ class EventLogger:
         try:
             self._seq += 1
             with open(self.events_path, 'a', encoding='utf-8') as f:
-                f.write(f"{self._seq},{pd.Timestamp.utcnow().tz_localize('UTC').isoformat()},CANCEL,{order_id},,,,,,\n")
+                f.write(f"{self._seq},{pd.Timestamp.now(tz='UTC').isoformat()},CANCEL,{order_id},,,,,,\n")
         except Exception as exc:
             logging.debug("Event log (cancel) skipped: %s", exc)
 
@@ -2554,7 +2715,7 @@ class MarketDataFeed:
             else:
                 timestamp = pd.to_datetime(timestamp, utc=True)
         except Exception:
-            timestamp = pd.Timestamp.utcnow().tz_localize('UTC')
+            timestamp = pd.Timestamp.now(tz='UTC')
         return {
             'symbol': self.symbol,
             'timestamp': timestamp,
@@ -2582,7 +2743,7 @@ class MarketDataFeed:
                     base = float(self._last_price) if self._last_price is not None else 100.0
                     md = {
                         'symbol': self.symbol,
-                        'timestamp': pd.Timestamp.utcnow().tz_localize('UTC'),
+                        'timestamp': pd.Timestamp.now(tz='UTC'),
                         'price': float(base),
                         'volume': 0,
                     }
@@ -2613,7 +2774,7 @@ class MarketDataFeed:
                         self._last_price = sim_price
                         md = {
                             'symbol': self.symbol,
-                            'timestamp': pd.Timestamp.utcnow().tz_localize('UTC'),
+                            'timestamp': pd.Timestamp.now(tz='UTC'),
                             'price': float(sim_price),
                             'volume': 0,
                         }
@@ -2892,7 +3053,7 @@ class MomentumTrader(AlgorithmicTrader):
             best_ask = self.matching_engine.order_book.get_best_ask()
             if best_ask is None:
                 return
-            order = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='momentum')
+            order = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='default')
             self.matching_engine.match_order(order)
             logging.info(f"MomentumTrader placed a buy order at {best_ask}")
         elif price_change < 0:
@@ -2900,7 +3061,7 @@ class MomentumTrader(AlgorithmicTrader):
             best_bid = self.matching_engine.order_book.get_best_bid()
             if best_bid is None:
                 return
-            order = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='momentum')
+            order = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='default')
             self.matching_engine.match_order(order)
             logging.info(f"MomentumTrader placed a sell order at {best_bid}")
 
@@ -2927,14 +3088,14 @@ class EMABasedTrader(AlgorithmicTrader):
             best_ask = self.matching_engine.order_book.get_best_ask()
             if best_ask is None:
                 return
-            order = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='ema')
+            order = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='default')
             self.matching_engine.match_order(order)
             logging.info(f"EMABasedTrader placed a buy order at {best_ask}")
         elif short_ema < long_ema:
             best_bid = self.matching_engine.order_book.get_best_bid()
             if best_bid is None:
                 return
-            order = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='ema')
+            order = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='default')
             self.matching_engine.match_order(order)
             logging.info(f"EMABasedTrader placed a sell order at {best_bid}")
 
@@ -2958,14 +3119,14 @@ class SwingTrader(AlgorithmicTrader):
             best_ask = self.matching_engine.order_book.get_best_ask()
             if best_ask is None:
                 return
-            order = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='swing')
+            order = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='default')
             self.matching_engine.match_order(order)
             logging.info(f"SwingTrader placed a buy order at {best_ask}")
         elif self.current_price >= self.resistance_level:
             best_bid = self.matching_engine.order_book.get_best_bid()
             if best_bid is None:
                 return
-            order = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='swing')
+            order = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='default')
             self.matching_engine.match_order(order)
             logging.info(f"SwingTrader placed a sell order at {best_bid}")
 
@@ -3372,8 +3533,76 @@ def stop_traders(traders: List[AlgorithmicTrader], threads: List[threading.Threa
 # Main (CLI)
 # --------------------------------------------------------------------------------------
 def main() -> None:
+    # If launched with no args, enter guided interactive CLI
+    if len(sys.argv) == 1:
+        try:
+            print("\n=== Trading Simulator (Guided CLI) ===\n")
+            # 1) Choose mode
+            print("Select a mode:\n  1) Backtest (historical)\n  2) Live (streaming)\n  3) Replay (historical live-backtest)\n  4) Demo (simple order-book controls)\n  5) Advanced (full control)\n")
+            mode_choice = input("Enter choice [1-4]: ").strip() or '1'
+            mode_map = {'1': 'backtest', '2': 'live', '3': 'replay', '4': 'demo', '5': 'advanced'}
+            mode = mode_map.get(mode_choice, 'backtest')
+
+            # 2) Common symbol(s)
+            if mode == 'backtest':
+                symbol = input("Symbol (e.g., AAPL): ").strip() or 'AAPL'
+                multi = input("Multi-asset? Enter symbols comma-separated (or leave blank): ").strip()
+                symbols = multi if multi else None
+                start = input("Start date [YYYY-MM-DD] (default 2023-01-01): ").strip() or '2023-01-01'
+                end = input("End date [YYYY-MM-DD] (default 2023-12-31): ").strip() or '2023-12-31'
+                enable_tr = (input("Enable built-in traders? [y/N]: ").strip().lower() == 'y')
+                log_dir = input("Log directory (default .logs): ").strip() or '.logs'
+                seed = input("Seed (leave blank for none): ").strip()
+                args_list = [
+                    '--mode', 'backtest', '--symbol', symbol, '--start-date', start, '--end-date', end,
+                    '--log-dir', log_dir
+                ]
+                if symbols:
+                    args_list += ['--symbols', symbols]
+                if enable_tr:
+                    args_list += ['--enable-traders']
+                if seed:
+                    args_list += ['--seed', seed]
+                print("\nRunning: ", ' '.join(['python', os.path.basename(__file__)] + args_list))
+                sys.argv = [sys.argv[0]] + args_list
+            elif mode == 'replay':
+                symbol = input("Symbol (e.g., AAPL): ").strip() or 'AAPL'
+                start = input("Start date [YYYY-MM-DD] (default 2023-01-01): ").strip() or '2023-01-01'
+                end = input("End date [YYYY-MM-DD] (default 2023-12-31): ").strip() or '2023-12-31'
+                enable_tr = (input("Enable built-in traders? [y/N]: ").strip().lower() == 'y')
+                speed = input("Replay speed (1.0=real-time, default 5): ").strip() or '5'
+                log_dir = input("Log directory (default .logs): ").strip() or '.logs'
+                args_list = ['--mode', 'replay', '--symbol', symbol, '--start-date', start, '--end-date', end, '--replay-speed', speed, '--log-dir', log_dir]
+                if enable_tr:
+                    args_list += ['--enable-traders']
+                print("\nRunning: ", ' '.join(['python', os.path.basename(__file__)] + args_list))
+                sys.argv = [sys.argv[0]] + args_list
+            elif mode == 'live':
+                symbol = input("Symbol (e.g., AAPL or BTC-USD): ").strip() or 'AAPL'
+                interval = input("Market data interval seconds (default 30): ").strip() or '30'
+                enable_tr = (input("Enable built-in traders? [y/N]: ").strip().lower() == 'y')
+                log_dir = input("Log directory (default .logs): ").strip() or '.logs'
+                args_list = ['--mode', 'live', '--symbol', symbol, '--md-interval', interval, '--log-dir', log_dir]
+                if enable_tr:
+                    args_list += ['--enable-traders']
+                print("\nRunning: ", ' '.join(['python', os.path.basename(__file__)] + args_list))
+                sys.argv = [sys.argv[0]] + args_list
+            elif mode == 'advanced':
+                # Enter raw flags mode: user types a full argument string; we pass it through
+                print("\nAdvanced mode: type any flags you want exactly as you would on the command line.")
+                print("Examples: --mode backtest --symbols \"AAPL,MSFT\" --start-date 2023-01-01 --end-date 2023-02-01 --enable-traders --mm-num-levels 3 --risk-max-order-qty 500 --optuna-trials 10")
+                raw = input("Args: ").strip()
+                args_list = raw.split()
+                print("\nRunning: ", ' '.join(['python', os.path.basename(__file__)] + args_list))
+                sys.argv = [sys.argv[0]] + args_list
+            else:
+                sys.argv = [sys.argv[0], '--mode', 'demo']
+        except KeyboardInterrupt:
+            print("\nCancelled.")
+            return
+
     parser = argparse.ArgumentParser(description="Trading Simulator with Algorithmic Traders")
-    parser.add_argument('--mode', choices=['backtest', 'live', 'demo'], default='backtest', help='Run mode')
+    parser.add_argument('--mode', choices=['backtest', 'live', 'demo', 'replay'], default='backtest', help='Run mode')
     parser.add_argument('--symbol', default='AAPL', help='Ticker symbol')
     parser.add_argument('--start-date', default='2023-01-01', help='Backtest start date (YYYY-MM-DD)')
     parser.add_argument('--end-date', default='2023-12-31', help='Backtest end date (YYYY-MM-DD)')
@@ -3400,12 +3629,39 @@ def main() -> None:
     parser.add_argument('--optuna-trials', type=int, default=0, help='Run Optuna parameter search with N trials (0 to disable)')
     parser.add_argument('--mlflow-uri', default=None, help='MLflow tracking URI (set to enable MLflow logging)')
     parser.add_argument('--mlflow-experiment', default='trading-simulator', help='MLflow experiment name')
+    # Historical live replay controls
+    parser.add_argument('--replay-speed', type=float, default=1.0, help='Historical replay speed factor (1.0 = real time; 10.0 = 10x faster)')
+    parser.add_argument('--replay-interval-seconds', type=float, default=None, help='Fixed seconds between historical ticks (overrides speed if set)')
     # Trader parameterization
     parser.add_argument('--momentum-lookback', type=int, default=5, help='MomentumTrader lookback (bars)')
     parser.add_argument('--ema-short-window', type=int, default=5, help='EMABasedTrader short EMA window (bars)')
     parser.add_argument('--ema-long-window', type=int, default=20, help='EMABasedTrader long EMA window (bars)')
     parser.add_argument('--swing-support', type=float, default=100.0, help='SwingTrader support level')
     parser.add_argument('--swing-resistance', type=float, default=200.0, help='SwingTrader resistance level')
+    # Matching engine microstructure & protections
+    parser.add_argument('--price-band-bps', type=float, default=0.0, help='Price band protection in bps around reference price (0 disables)')
+    parser.add_argument('--band-reference', choices=['mid', 'last'], default='mid', help='Reference price for banding: mid or last')
+    parser.add_argument('--taker-fee-bps', type=float, default=0.0, help='Taker fee in basis points applied to executions')
+    parser.add_argument('--maker-rebate-bps', type=float, default=0.0, help='Maker rebate in basis points applied to executions')
+    parser.add_argument('--use-queue', action='store_true', help='Enable submission queue in matching engine')
+    parser.add_argument('--queue-max', type=int, default=10000, help='Max order queue length when using submission queue')
+    parser.add_argument('--snapshot-interval-sec', type=int, default=0, help='Order book snapshot interval seconds (0 disables)')
+    parser.add_argument('--snapshot-dir', default=None, help='Directory to write order book snapshots when enabled')
+    # Risk manager advanced controls
+    parser.add_argument('--risk-min-order-qty', type=int, default=1, help='Risk: minimum order quantity')
+    parser.add_argument('--risk-lot-size', type=int, default=1, help='Risk: lot size for round lot checks')
+    parser.add_argument('--risk-round-lot-required', action='store_true', help='Risk: require round-lot orders')
+    parser.add_argument('--risk-order-rate-limit', type=int, default=None, help='Risk: per-owner order rate limit (orders/sec)')
+    parser.add_argument('--risk-owner-drawdown-limit', type=float, default=None, help='Risk: per-owner drawdown kill switch (fraction, e.g., 0.2)')
+    parser.add_argument('--risk-volatility-window', type=int, default=20, help='Risk: volatility window for z-score halt')
+    parser.add_argument('--risk-volatility-halt-z', type=float, default=None, help='Risk: z-score threshold to halt orders (abs)')
+    parser.add_argument('--risk-max-leverage', type=float, default=None, help='Risk: max leverage (gross exposure / equity)')
+    parser.add_argument('--risk-max-symbol-gross-exposure', type=float, default=None, help='Risk: max gross exposure per symbol')
+    # Custom trader injection: module path and class, plus JSON params
+    parser.add_argument('--custom-trader', action='append', default=None,
+                        help='Add a custom trader. Format: module:ClassName or dotted.path:ClassName')
+    parser.add_argument('--custom-trader-params', action='append', default=None,
+                        help='JSON dict of params for the last --custom-trader provided (repeatable)')
 
     # Market Maker parameters (CLI overrides)
     parser.add_argument('--mm-gamma', type=float, default=0.1, help='Avellaneda–Stoikov risk aversion (gamma)')
@@ -3440,6 +3696,17 @@ def main() -> None:
     # Configure backtest microstructure model
     matching_engine.slippage_bps_per_100_shares = float(max(0.0, args.slippage_bps_per_100))
     matching_engine.latency_ms = max(0, int(args.latency_ms))
+    matching_engine.price_band_bps = float(max(0.0, args.price_band_bps))
+    matching_engine.band_reference = str(args.band_reference)
+    matching_engine.taker_fee_bps = float(max(0.0, args.taker_fee_bps))
+    matching_engine.maker_rebate_bps = float(max(0.0, args.maker_rebate_bps))
+    matching_engine.use_queue = bool(args.use_queue)
+    matching_engine.queue_max = int(max(1, args.queue_max))
+    if args.snapshot_interval_sec and args.snapshot_dir:
+        try:
+            matching_engine.start_snapshotting(int(args.snapshot_interval_sec), args.snapshot_dir)
+        except Exception:
+            logging.warning("Failed to start snapshotting; check permissions/dir")
     portfolio = Portfolio(initial_cash=args.initial_cash, fee_bps=args.fee_bps)
     matching_engine.subscribe_trades(portfolio.on_execution)
     csv_logger = CsvLogger(args.log_dir)
@@ -3450,6 +3717,17 @@ def main() -> None:
         max_order_qty=args.risk_max_order_qty,
         max_symbol_position=args.risk_max_symbol_position,
         max_gross_notional=args.risk_max_gross_notional,
+        min_order_qty=int(max(1, args.risk_min_order_qty)),
+        lot_size=int(max(1, args.risk_lot_size)),
+        round_lot_required=bool(args.risk_round_lot_required),
+        order_rate_limit_per_sec=args.risk_order_rate_limit,
+        owner_drawdown_limit=args.risk_owner_drawdown_limit,
+        owner_portfolios=None,
+        price_provider=matching_engine.get_last_trade_price,
+        volatility_window=int(max(5, args.risk_volatility_window)),
+        volatility_halt_z=args.risk_volatility_halt_z,
+        max_leverage=args.risk_max_leverage,
+        max_symbol_gross_exposure=args.risk_max_symbol_gross_exposure,
     )
 
     if args.mode == 'backtest':
@@ -3537,6 +3815,31 @@ def main() -> None:
                 portfolio=portfolio,
                 csv_logger=csv_logger,
             )
+            # Periodic metrics output (final snapshot)
+            try:
+                metrics = csv_logger.compute_periodic_metrics(lookback=100)
+                if metrics:
+                    logging.info(
+                        "Metrics: net_liq=%.2f cash=%.2f realized=%.2f sharpe=%.3f sortino=%.3f vol=%.3f%% dd_cur=%.2f%% dd_max=%.2f%% cagr=%.2f%% trades=%.0f buys=%.0f sells=%.0f notional=%.2f avg_qty=%.2f slip_bps=%.2f adverse=%.2f%%",
+                        metrics.get('net_liquidation', float('nan')),
+                        metrics.get('cash', float('nan')),
+                        metrics.get('realized_pnl', float('nan')),
+                        metrics.get('sharpe_ann', float('nan')),
+                        metrics.get('sortino_ann', float('nan')),
+                        metrics.get('vol_ann', 0.0) * 100.0,
+                        metrics.get('drawdown_cur', 0.0) * 100.0,
+                        metrics.get('drawdown_max', 0.0) * 100.0,
+                        metrics.get('cagr', 0.0) * 100.0,
+                        metrics.get('trades', 0.0),
+                        metrics.get('buys', 0.0),
+                        metrics.get('sells', 0.0),
+                        metrics.get('notional', 0.0),
+                        metrics.get('avg_trade_qty', float('nan')),
+                        metrics.get('slippage_mid_bps_avg', float('nan')),
+                        metrics.get('adverse_rate', float('nan')) * 100.0,
+                    )
+            except Exception:
+                pass
         if args.export_report:
             try:
                 eq_path = os.path.join(args.log_dir, 'equity_curve.csv')
@@ -3593,6 +3896,116 @@ def main() -> None:
         demo_order_controls(order_book)
         return
 
+    # Replay mode (historical live-backtest)
+    if args.mode == 'replay':
+        symbol = args.symbol
+        historical_data = load_historical_data(symbol, args.start_date, args.end_date)
+        market_maker = MarketMaker(
+            symbol=symbol,
+            matching_engine=matching_engine,
+            gamma=args.mm_gamma,
+            k=args.mm_k,
+            horizon_seconds=args.mm_horizon_seconds,
+            max_inventory=args.mm_max_inventory,
+            base_order_size=args.mm_base_order_size,
+            min_spread=args.mm_min_spread,
+            num_levels=args.mm_num_levels,
+            level_spacing_bps=args.mm_level_spacing_bps,
+            size_decay=args.mm_size_decay,
+            momentum_window=args.mm_momentum_window,
+            alpha_skew=args.mm_alpha_skew,
+            vol_widen_z=args.mm_vol_widen_z,
+            drawdown_limit=args.mm_drawdown_limit,
+        )
+        matching_engine.subscribe_trades(market_maker.on_execution)
+        backtest_traders: List[AlgorithmicTrader] = []
+        if args.enable_traders:
+            backtest_traders = [
+                MomentumTrader(symbol=symbol, matching_engine=matching_engine, interval=0.0, lookback=int(args.momentum_lookback)),
+                EMABasedTrader(symbol=symbol, matching_engine=matching_engine, interval=0.0, short_window=int(args.ema_short_window), long_window=int(args.ema_long_window)),
+                SwingTrader(symbol=symbol, matching_engine=matching_engine, interval=0.0, support_level=float(args.swing_support), resistance_level=float(args.swing_resistance)),
+            ]
+        # Inject custom traders (replay)
+        if args.custom_trader:
+            import json as _json
+            for idx, spec in enumerate(args.custom_trader):
+                try:
+                    mod_path, cls_name = spec.split(':', 1)
+                    mod = importlib.import_module(mod_path)
+                    cls = getattr(mod, cls_name)
+                    params = {}
+                    if args.custom_trader_params and idx < len(args.custom_trader_params):
+                        try:
+                            params = _json.loads(args.custom_trader_params[idx])
+                        except Exception:
+                            logging.warning("Invalid JSON for --custom-trader-params[%d]", idx)
+                    trader = cls(symbol=symbol, matching_engine=matching_engine, **params)
+                    if isinstance(trader, AlgorithmicTrader):
+                        backtest_traders.append(trader)
+                except Exception as exc:
+                    logging.warning("Failed to load custom trader '%s': %s", spec, exc)
+        # Stream historical bars in real time (or accelerated)
+        last_prices: Dict[str, float] = {}
+        for _, row in historical_data.iterrows():
+            ts = pd.to_datetime(row['Date'], utc=True) if not isinstance(row['Date'], pd.Timestamp) else row['Date']
+            if isinstance(ts, pd.Timestamp):
+                if ts.tzinfo is None:
+                    ts = ts.tz_localize('UTC')
+                else:
+                    ts = ts.tz_convert('UTC')
+            matching_engine.set_time(ts)
+            matching_engine.process_delayed_orders(ts)
+            md = {'symbol': symbol, 'price': float(row['Close']), 'timestamp': ts}
+            market_maker.on_market_data(md)
+            for t in backtest_traders:
+                try:
+                    t.on_market_data(md)
+                    t.trade()
+                except Exception as exc:
+                    logging.warning("Replay trader error: %s", exc)
+            last_prices[symbol] = float(row['Close'])
+            try:
+                net_liq = mark_to_market(portfolio, last_prices) + portfolio.realized_pnl
+                csv_logger.log_equity(ts, net_liq, portfolio.realized_pnl, portfolio.cash)
+                # Periodic metrics every ~25 bars
+                if int(time.time()) % 25 == 0:
+                    metrics = csv_logger.compute_periodic_metrics(lookback=100)
+                    if metrics:
+                        logging.info(
+                            "Metrics: net_liq=%.2f cash=%.2f realized=%.2f sharpe=%.3f sortino=%.3f vol=%.3f%% dd_cur=%.2f%% dd_max=%.2f%% cagr=%.2f%% trades=%.0f buys=%.0f sells=%.0f notional=%.2f avg_qty=%.2f slip_bps=%.2f adverse=%.2f%%",
+                            metrics.get('net_liquidation', float('nan')),
+                            metrics.get('cash', float('nan')),
+                            metrics.get('realized_pnl', float('nan')),
+                            metrics.get('sharpe_ann', float('nan')),
+                            metrics.get('sortino_ann', float('nan')),
+                            metrics.get('vol_ann', 0.0) * 100.0,
+                            metrics.get('drawdown_cur', 0.0) * 100.0,
+                            metrics.get('drawdown_max', 0.0) * 100.0,
+                            metrics.get('cagr', 0.0) * 100.0,
+                            metrics.get('trades', 0.0),
+                            metrics.get('buys', 0.0),
+                            metrics.get('sells', 0.0),
+                            metrics.get('notional', 0.0),
+                            metrics.get('avg_trade_qty', float('nan')),
+                            metrics.get('slippage_mid_bps_avg', float('nan')),
+                            metrics.get('adverse_rate', float('nan')) * 100.0,
+                        )
+            except Exception:
+                pass
+            # pacing
+            try:
+                if args.replay_interval_seconds is not None:
+                    time.sleep(max(0.0, float(args.replay_interval_seconds)))
+                else:
+                    # approximate bar spacing using previous timestamp; default to 1 second if unknown
+                    time.sleep(max(0.0, 1.0 / max(0.1, float(args.replay_speed))))
+            except Exception:
+                time.sleep(1.0)
+        logging.info("Replay completed.")
+        snap = portfolio.snapshot()
+        logging.info("Portfolio after replay: cash=%.2f realized_pnl=%.2f positions=%s", snap['cash'], snap['realized_pnl'], snap['positions'])
+        return
+
     # Live mode
     symbol = args.symbol
     fix_app: Optional[FixApplication] = None
@@ -3640,6 +4053,25 @@ def main() -> None:
         swing_trader = SwingTrader(symbol=symbol, matching_engine=matching_engine, interval=15, support_level=float(args.swing_support), resistance_level=float(args.swing_resistance))
 
         traders = [momentum_trader, ema_trader, swing_trader]
+    # Inject custom traders (live)
+    if args.custom_trader:
+        import json as _json
+        for idx, spec in enumerate(args.custom_trader):
+            try:
+                mod_path, cls_name = spec.split(':', 1)
+                mod = importlib.import_module(mod_path)
+                cls = getattr(mod, cls_name)
+                params = {}
+                if args.custom_trader_params and idx < len(args.custom_trader_params):
+                    try:
+                        params = _json.loads(args.custom_trader_params[idx])
+                    except Exception:
+                        logging.warning("Invalid JSON for --custom-trader-params[%d]", idx)
+                trader = cls(symbol=symbol, matching_engine=matching_engine, **params)
+                if isinstance(trader, AlgorithmicTrader):
+                    traders.append(trader)
+            except Exception as exc:
+                logging.warning("Failed to load custom trader '%s': %s", spec, exc)
     # Sentiment trader only if both model and API key provided
     if args.news_api_key:
         try:
@@ -3689,7 +4121,32 @@ def main() -> None:
         last_price = market_data_feed.last_price()
         if last_price is not None:
             net_liq = mark_to_market(portfolio, {args.symbol: last_price}) + portfolio.realized_pnl
-            csv_logger.log_equity(pd.Timestamp.utcnow().tz_localize('UTC'), net_liq, portfolio.realized_pnl, portfolio.cash)
+            csv_logger.log_equity(pd.Timestamp.now(tz='UTC'), net_liq, portfolio.realized_pnl, portfolio.cash)
+        # Final periodic metrics
+        try:
+            metrics = csv_logger.compute_periodic_metrics(lookback=100)
+            if metrics:
+                logging.info(
+                    "Metrics: net_liq=%.2f cash=%.2f realized=%.2f sharpe=%.3f sortino=%.3f vol=%.3f%% dd_cur=%.2f%% dd_max=%.2f%% cagr=%.2f%% trades=%.0f buys=%.0f sells=%.0f notional=%.2f avg_qty=%.2f slip_bps=%.2f adverse=%.2f%%",
+                    metrics.get('net_liquidation', float('nan')),
+                    metrics.get('cash', float('nan')),
+                    metrics.get('realized_pnl', float('nan')),
+                    metrics.get('sharpe_ann', float('nan')),
+                    metrics.get('sortino_ann', float('nan')),
+                    metrics.get('vol_ann', 0.0) * 100.0,
+                    metrics.get('drawdown_cur', 0.0) * 100.0,
+                    metrics.get('drawdown_max', 0.0) * 100.0,
+                    metrics.get('cagr', 0.0) * 100.0,
+                    metrics.get('trades', 0.0),
+                    metrics.get('buys', 0.0),
+                    metrics.get('sells', 0.0),
+                    metrics.get('notional', 0.0),
+                    metrics.get('avg_trade_qty', float('nan')),
+                    metrics.get('slippage_mid_bps_avg', float('nan')),
+                    metrics.get('adverse_rate', float('nan')) * 100.0,
+                )
+        except Exception:
+            pass
         logging.info("Final portfolio: cash=%.2f realized_pnl=%.2f positions=%s", snap['cash'], snap['realized_pnl'], snap['positions'])
 
 
