@@ -41,33 +41,41 @@ import pandas as pd
 import requests
 
 try:
-    import simplefix
-except Exception as exc:  # pragma: no cover - dependency availability at runtime
-    raise RuntimeError(
-        "simplefix is required. Install with: pip install simplefix"
-    ) from exc
+    import simplefix  # type: ignore
+    SIMPLEFIX_AVAILABLE = True
+except Exception:  # pragma: no cover - optional at runtime
+    simplefix = None  # type: ignore
+    SIMPLEFIX_AVAILABLE = False
 
 try:
-    import yahooquery as yq
-except Exception as exc:  # pragma: no cover
-    raise RuntimeError(
-        "yahooquery is required. Install with: pip install yahooquery"
-    ) from exc
+    import yahooquery as yq  # type: ignore
+    YQ_AVAILABLE = True
+except Exception:  # pragma: no cover - optional at runtime
+    yq = None  # type: ignore
+    YQ_AVAILABLE = False
+
+# Optional fallback: yfinance
+try:
+    import yfinance as yf  # type: ignore
+    YF_AVAILABLE = True
+except Exception:
+    YF_AVAILABLE = False
 
 try:
-    import tensorflow as tf
-    from tensorflow.keras.models import load_model #type: ignore
-except Exception as exc:  # pragma: no cover
-    raise RuntimeError(
-        "TensorFlow is required for the sentiment trader. Install with: pip install tensorflow"
-    ) from exc
+    import tensorflow as tf  # type: ignore
+    from tensorflow.keras.models import load_model  # type: ignore
+    TF_AVAILABLE = True
+except Exception:  # pragma: no cover - optional at runtime
+    tf = None  # type: ignore
+    def load_model(*args, **kwargs):  # type: ignore
+        raise RuntimeError("TensorFlow is not available; install tensorflow to use SentimentAnalysisTrader")
+    TF_AVAILABLE = False
 
 try:
-    from newsapi import NewsApiClient
-except Exception as exc:  # pragma: no cover
-    raise RuntimeError(
-        "newsapi-python is required for the sentiment trader. Install with: pip install newsapi-python"
-    ) from exc
+    from newsapi import NewsApiClient  # type: ignore
+    NEWSAPI_AVAILABLE = True
+except Exception:  # pragma: no cover - optional at runtime
+    NEWSAPI_AVAILABLE = False
 
 # Database (SQLAlchemy) for persistence
 try:
@@ -90,11 +98,73 @@ try:
 except Exception:
     MLFLOW_AVAILABLE = False
 
+# Optional event backends
+try:
+    import redis  # type: ignore
+    REDIS_AVAILABLE = True
+except Exception:
+    REDIS_AVAILABLE = False
+try:
+    from confluent_kafka import Producer  # type: ignore
+    KAFKA_AVAILABLE = True
+except Exception:
+    KAFKA_AVAILABLE = False
+
 
 # --------------------------------------------------------------------------------------
 # Logging
 # --------------------------------------------------------------------------------------
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# --------------------------------------------------------------------------------------
+# Event Bus (Redis/Kafka optional publishers)
+# --------------------------------------------------------------------------------------
+
+class EventBus:
+    def __init__(self) -> None:
+        self._publishers: List[Callable[[str, Dict[str, Any]], None]] = []
+
+    def add_publisher(self, fn: Callable[[str, Dict[str, Any]], None]) -> None:
+        self._publishers.append(fn)
+
+    def publish(self, event_type: str, payload: Dict[str, Any]) -> None:
+        for fn in list(self._publishers):
+            try:
+                fn(event_type, payload)
+            except Exception:
+                logging.debug("Event publish failed", exc_info=True)
+
+
+def make_redis_publisher(url: str, channel: str) -> Callable[[str, Dict[str, Any]], None]:
+    if not REDIS_AVAILABLE:
+        raise RuntimeError("redis is not available")
+    client = redis.from_url(url)  # type: ignore
+    ch = str(channel)
+
+    def _pub(evt: str, data: Dict[str, Any]) -> None:
+        try:
+            client.publish(ch, json.dumps({"event": evt, "data": data}, default=str))  # type: ignore
+        except Exception:
+            logging.debug("Redis publish failed", exc_info=True)
+    return _pub
+
+
+def make_kafka_publisher(bootstrap_servers: str, topic: str) -> Callable[[str, Dict[str, Any]], None]:
+    if not KAFKA_AVAILABLE:
+        raise RuntimeError("confluent_kafka is not available")
+    producer = Producer({'bootstrap.servers': bootstrap_servers})  # type: ignore
+    tp = str(topic)
+
+    def delivery_err(err, msg):  # type: ignore
+        if err is not None:
+            logging.debug("Kafka delivery failed: %s", err)
+
+    def _pub(evt: str, data: Dict[str, Any]) -> None:
+        try:
+            producer.produce(tp, json.dumps({"event": evt, "data": data}, default=str), callback=delivery_err)
+            producer.poll(0)
+        except Exception:
+            logging.debug("Kafka publish failed", exc_info=True)
+    return _pub
 
 
 # --------------------------------------------------------------------------------------
@@ -164,7 +234,7 @@ def _is_market_open(symbol: str, now_utc: Optional[pd.Timestamp] = None) -> bool
         open_str = cfg.get('open') or '09:30'
         close_str = cfg.get('close') or '16:00'
         holidays = set(cfg.get('holidays') or [])
-        now_utc = now_utc or pd.Timestamp.utcnow().tz_localize('UTC')
+        now_utc = now_utc or pd.Timestamp.now(tz='UTC')
         local = now_utc.tz_convert(tz)
         date_key = local.strftime('%Y-%m-%d')
         if date_key in holidays:
@@ -306,29 +376,49 @@ def _yq_history_with_retry(symbol: str, *, period: Optional[str] = None, interva
                             start: Optional[str] = None, end: Optional[str] = None,
                             max_retries: int = 5, base_backoff: float = 1.5) -> pd.DataFrame:
     last_exc: Optional[Exception] = None
-    for attempt in range(max_retries):
+    # Primary: yahooquery (if available)
+    if YQ_AVAILABLE:
+        for attempt in range(max_retries):
+            try:
+                if period is not None and interval is not None:
+                    data = yq.Ticker(symbol, session=_HTTP_SESSION).history(period=period, interval=interval)
+                else:
+                    # Date range daily
+                    data = yq.Ticker(symbol, session=_HTTP_SESSION).history(start=start, end=end, interval='1d')
+                if data is not None and not data.empty:
+                    data = _normalize_yq_history_df(data, symbol)
+                    if data is not None and not data.empty:
+                        return data
+            except Exception as exc:
+                last_exc = exc
+                logging.warning("yahooquery fetch failed (attempt %s/%s): %s", attempt + 1, max_retries, exc)
+            # Backoff with jitter
+            sleep_s = base_backoff ** attempt + random.uniform(0, 0.5)
+            time.sleep(sleep_s)
+        logging.error("yahooquery fetch failed or empty after %s attempts; falling back to yfinance if available", max_retries)
+
+    # Fallback: yfinance
+    if YF_AVAILABLE:
         try:
             if period is not None and interval is not None:
-                data = yq.Ticker(symbol, session=_HTTP_SESSION).history(period=period, interval=interval)
+                df = yf.Ticker(symbol).history(period=period, interval=interval)
             else:
-                # Date range daily
-                data = yq.Ticker(symbol, session=_HTTP_SESSION).history(start=start, end=end, interval='1d')
-            if data is not None and not data.empty:
-                data = _normalize_yq_history_df(data, symbol)
-                if data is not None and not data.empty:
-                    return data
+                df = yf.download(symbol, start=start, end=end, interval='1d', progress=False)
+            if df is not None and not df.empty:
+                # Ensure DataFrame has expected columns and index
+                if 'Close' not in df.columns and 'close' in [c.lower() for c in df.columns]:
+                    # yfinance generally returns capitalized columns, but guard just in case
+                    rename_map = {c: c.capitalize() for c in df.columns}
+                    df = df.rename(columns=rename_map)
+                return df
         except Exception as exc:
             last_exc = exc
-            logging.warning("yahooquery fetch failed (attempt %s/%s): %s", attempt + 1, max_retries, exc)
-        # Backoff with jitter
-        sleep_s = base_backoff ** attempt + random.uniform(0, 0.5)
-        time.sleep(sleep_s)
+            logging.error("yfinance fallback failed: %s", exc)
 
+    # Neither provider succeeded
     if last_exc:
-        logging.error("yahooquery fetch failed after %s attempts: %s", max_retries, last_exc)
         raise last_exc
-    # If simply empty without exception after retries, raise to caller
-    raise RuntimeError("yahooquery returned empty data after retries")
+    raise RuntimeError("Market data fetch returned empty data after retries (yahooquery/yfinance)")
 
 
 # --------------------------------------------------------------------------------------
@@ -503,6 +593,7 @@ class MatchingEngine:
         self.maker_rebate_bps: float = 0.0
         # Optional event logger
         self.event_logger: Optional[EventLogger] = None  # type: ignore[name-defined]
+        self.audit_logger: Optional[AuditLogger] = None  # type: ignore[name-defined]
         # Halted symbols
         self._halted: set[str] = set()
         # Optional submission queue for concurrency model
@@ -517,6 +608,8 @@ class MatchingEngine:
         self.snapshot_dir: Optional[str] = None
         self._snapshot_thread: Optional[threading.Thread] = None
         self._snapshot_running: bool = False
+        # Track last execution per symbol for adverse selection
+        self._last_exec_by_symbol: Dict[str, "Execution"] = {}
 
     def subscribe_trades(self, callback: Callable[["Execution"], None]) -> None:
         self._trade_subscribers.append(callback)
@@ -533,6 +626,8 @@ class MatchingEngine:
                 bb = self.order_book.get_best_bid()
                 ba = self.order_book.get_best_ask()
                 self.event_logger.log_execution(execution, best_bid=bb, best_ask=ba)
+            if self.audit_logger is not None:
+                self.audit_logger.log_execution(execution)
         except Exception:
             pass
         for cb in list(self._trade_subscribers):
@@ -548,6 +643,17 @@ class MatchingEngine:
             slip_last = None if last is None or last == 0 else ((execution.price - last) / last * 10000.0 if execution.side == 'buy' else (last - execution.price) / last * 10000.0)
             if hasattr(self, 'tca_logger') and getattr(self, 'tca_logger') is not None:
                 self.tca_logger.log_tca(execution.timestamp, execution.symbol, execution.side, float(execution.price), mid, last, slip_mid, slip_last)  # type: ignore[attr-defined]
+                # Adverse selection: compare prior exec price to current exec price for same symbol and log outcome
+                try:
+                    prev = self._last_exec_by_symbol.get(execution.symbol)
+                    if prev is not None:
+                        next_price = float(execution.price)
+                        adverse = bool((prev.side == 'buy' and next_price < float(prev.price)) or (prev.side == 'sell' and next_price > float(prev.price)))
+                        self.tca_logger.log_tca_adv(prev.timestamp, prev.symbol, prev.side, float(prev.price), next_price, adverse)  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                # Update last exec for symbol
+                self._last_exec_by_symbol[execution.symbol] = execution
         except Exception:
             pass
 
@@ -630,7 +736,7 @@ class MatchingEngine:
                 logging.warning("Order %s rejected by risk manager", incoming_order.id)
                 return
             # Session check
-            if not _is_market_open(incoming_order.symbol, self._current_time or pd.Timestamp.utcnow().tz_localize('UTC')):
+            if not _is_market_open(incoming_order.symbol, self._current_time or pd.Timestamp.now(tz='UTC')):
                 logging.warning("Order %s rejected: market closed for %s", incoming_order.id, incoming_order.symbol)
                 return
             # Auction routing
@@ -654,6 +760,8 @@ class MatchingEngine:
             try:
                 if self.event_logger is not None:
                     self.event_logger.log_new_order(incoming_order)
+                if self.audit_logger is not None:
+                    self.audit_logger.log_new_order(incoming_order)
             except Exception:
                 pass
             # Latency: enqueue if configured and current time known
@@ -748,14 +856,14 @@ class MatchingEngine:
                     if not q:
                         continue
                     snap["bids"].append({"price": px, "orders": [
-                        {"id": o.id, "qty": o.quantity, "owner": getattr(o, 'owner_id', '')} for o in q
+                        {"id": o.id, "qty": o.quantity, "owner": getattr(o, 'owner_id', ''), "symbol": getattr(o, 'symbol', ''), "side": "buy"} for o in q
                     ]})
                 for px in self.order_book._ask_prices:
                     q = self.order_book.asks.get(px)
                     if not q:
                         continue
                     snap["asks"].append({"price": px, "orders": [
-                        {"id": o.id, "qty": o.quantity, "owner": getattr(o, 'owner_id', '')} for o in q
+                        {"id": o.id, "qty": o.quantity, "owner": getattr(o, 'owner_id', ''), "symbol": getattr(o, 'symbol', ''), "side": "sell"} for o in q
                     ]})
             path = os.path.join(self.snapshot_dir, f"snapshot_{int(time.time())}.json")
             with open(path, 'w', encoding='utf-8') as f:
@@ -799,6 +907,42 @@ class MatchingEngine:
             except Exception:
                 pass
             self._snapshot_thread = None
+
+    def load_snapshot_file(self, path: str) -> None:
+        """Load an order book snapshot JSON and rebuild book state.
+
+        Orders are reconstructed as resting limit orders using stored symbol/side/price/qty.
+        """
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                snap = json.load(f)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to load snapshot: {exc}")
+        with self._lock:
+            # Clear existing book
+            self.order_book.bids.clear()
+            self.order_book.asks.clear()
+            self.order_book.order_map.clear()
+            self.order_book._bid_prices.clear()
+            self.order_book._ask_prices.clear()
+            # Rebuild from snapshot
+            for side_key in ("bids", "asks"):
+                levels = snap.get(side_key, []) or []
+                for lvl in levels:
+                    px = float(lvl.get("price"))
+                    for od in (lvl.get("orders") or []):
+                        try:
+                            oid = str(od.get("id") or uuid.uuid4().hex)
+                            qty = int(od.get("qty") or 0)
+                            if qty <= 0:
+                                continue
+                            sym = str(od.get("symbol") or '')
+                            side = str(od.get("side") or ("buy" if side_key == "bids" else "sell"))
+                            owner = str(od.get("owner") or '')
+                            o = Order(id=oid, price=px, quantity=qty, side=side, type='limit', symbol=sym, owner_id=owner)
+                            self.order_book.add_order(o)
+                        except Exception:
+                            continue
 
     def start_auction(self, phase: str) -> None:
         with self._lock:
@@ -904,6 +1048,8 @@ class MatchingEngine:
             try:
                 if self.event_logger is not None:
                     self.event_logger.log_cancel(order_id)
+                if self.audit_logger is not None:
+                    self.audit_logger.log_cancel(order_id)
             except Exception:
                 pass
 
@@ -990,7 +1136,7 @@ class MatchingEngine:
                     break
                 continue
             # Expiry check for resting order
-            if getattr(resting, 'expires_at', None) is not None and pd.Timestamp.utcnow().tz_localize('UTC') >= pd.to_datetime(resting.expires_at):
+            if getattr(resting, 'expires_at', None) is not None and pd.Timestamp.now(tz='UTC') >= pd.to_datetime(resting.expires_at):
                 # remove expired resting order from book
                 queue.popleft()
                 try:
@@ -1018,7 +1164,7 @@ class MatchingEngine:
                     maker_order_id=resting.id,
                     symbol=resting.symbol,
                     side=order.side,
-                    timestamp=pd.Timestamp.utcnow().tz_localize('UTC'),
+                    timestamp=pd.Timestamp.now(tz='UTC'),
                     taker_owner_id=getattr(order, 'owner_id', None),
                     maker_owner_id=getattr(resting, 'owner_id', None),
                 )
@@ -1039,7 +1185,7 @@ class MatchingEngine:
                     maker_order_id=resting.id,
                     symbol=resting.symbol,
                     side=order.side,
-                    timestamp=pd.Timestamp.utcnow().tz_localize('UTC'),
+                    timestamp=pd.Timestamp.now(tz='UTC'),
                     taker_owner_id=getattr(order, 'owner_id', None),
                     maker_owner_id=getattr(resting, 'owner_id', None),
                 )
@@ -1048,11 +1194,11 @@ class MatchingEngine:
                 logging.info(f"Consumed resting {resting.id} qty {consumed} at {price}; incoming left {order.quantity}")
 
         # Remove empty price level if queue depleted
-            if not queue:
-                try:
-                    del counter_orders[price]
-                except KeyError:
-                    pass
+        if not queue:
+            try:
+                del counter_orders[price]
+            except KeyError:
+                pass
             # Keep sorted price lists in sync
             try:
                 if counter_side == 'sell':
@@ -1137,13 +1283,12 @@ class Portfolio:
             if prev_pos == 0 or (prev_pos > 0 and qty > 0) or (prev_pos < 0 and qty < 0):
                 # Increasing position in same direction: update average price
                 total_qty = abs(prev_pos) + abs(qty)
-                if total_qty != 0:
-                    prev_avg = self.avg_price.get(symbol, 0.0)
-                    if abs(prev_pos) == 0:
-                        new_avg = price
+                if total_qty == 0:
+                    self.avg_price[symbol] = price
                 else:
-                        new_avg = (prev_avg * abs(prev_pos) + price * abs(qty)) / total_qty
-                        self.avg_price[symbol] = new_avg
+                    prev_avg = self.avg_price.get(symbol, price if prev_pos != 0 else 0.0)
+                    new_avg = (prev_avg * abs(prev_pos) + price * abs(qty)) / total_qty
+                    self.avg_price[symbol] = new_avg
             else:
                 # Closing or flipping: realize PnL on the closed portion
                 close_qty = min(abs(prev_pos), abs(qty))
@@ -1229,7 +1374,11 @@ class RiskManager:
                  order_rate_limit_per_sec: Optional[int] = None,
                  owner_drawdown_limit: Optional[float] = None,
                  owner_portfolios: Optional["PortfolioDispatcher"] = None,
-                 price_provider: Optional[Callable[[str], Optional[float]]] = None) -> None:
+                 price_provider: Optional[Callable[[str], Optional[float]]] = None,
+                 volatility_window: int = 20,
+                 volatility_halt_z: Optional[float] = None,
+                 max_leverage: Optional[float] = None,
+                 max_symbol_gross_exposure: Optional[float] = None) -> None:
         self.portfolio = portfolio
         self.max_order_qty = int(max_order_qty)
         self.max_symbol_position = int(max_symbol_position)
@@ -1244,29 +1393,109 @@ class RiskManager:
         self.owner_portfolios = owner_portfolios
         self.price_provider = price_provider
         self._owner_peak_equity: Dict[str, float] = {}
+        # Volatility-based halt
+        self.volatility_window: int = int(max(5, volatility_window))
+        self.volatility_halt_z: Optional[float] = float(volatility_halt_z) if volatility_halt_z is not None else None
+        self._symbol_last_price: Dict[str, float] = {}
+        self._symbol_returns: Dict[str, Deque[float]] = {}
+        # Kill switches and leverage/exposure caps
+        self._disabled_owners: set[str] = set()
+        self._disabled_symbols: set[str] = set()
+        self.max_leverage: Optional[float] = float(max_leverage) if max_leverage is not None else None
+        self.max_symbol_gross_exposure: Optional[float] = float(max_symbol_gross_exposure) if max_symbol_gross_exposure is not None else None
+
+    def disable_owner(self, owner_id: str) -> None:
+        self._disabled_owners.add(owner_id)
+
+    def enable_owner(self, owner_id: str) -> None:
+        self._disabled_owners.discard(owner_id)
+
+    def disable_symbol(self, symbol: str) -> None:
+        self._disabled_symbols.add(symbol)
+
+    def enable_symbol(self, symbol: str) -> None:
+        self._disabled_symbols.discard(symbol)
 
     def allow_order(self, order: Order) -> bool:
+        # Per-strategy/owner kill switch and per-symbol disable
+        owner = getattr(order, 'owner_id', 'default')
+        if owner in self._disabled_owners:
+            logging.info(json.dumps({
+                "event": "risk_reject",
+                "reason": "owner_killed",
+                "order_id": order.id,
+                "owner": owner,
+            }))
+            return False
+        if order.symbol in self._disabled_symbols:
+            logging.info(json.dumps({
+                "event": "risk_reject",
+                "reason": "symbol_disabled",
+                "order_id": order.id,
+                "symbol": order.symbol,
+            }))
+            return False
         # Check quantity bounds
         if order.quantity <= 0 or order.quantity > self.max_order_qty:
+            logging.info(json.dumps({
+                "event": "risk_reject",
+                "reason": "qty_bounds",
+                "order_id": order.id,
+                "owner": getattr(order, 'owner_id', 'default'),
+                "qty": order.quantity,
+                "max_order_qty": self.max_order_qty,
+            }))
             return False
         # Min quantity
         if order.quantity < self.min_order_qty:
+            logging.info(json.dumps({
+                "event": "risk_reject",
+                "reason": "min_qty",
+                "order_id": order.id,
+                "owner": getattr(order, 'owner_id', 'default'),
+                "qty": order.quantity,
+                "min_order_qty": self.min_order_qty,
+            }))
             return False
         # Round lot checks
         if self.round_lot_required and (order.quantity % self.lot_size != 0):
+            logging.info(json.dumps({
+                "event": "risk_reject",
+                "reason": "round_lot",
+                "order_id": order.id,
+                "owner": getattr(order, 'owner_id', 'default'),
+                "qty": order.quantity,
+                "lot_size": self.lot_size,
+            }))
             return False
         # Estimate notional using order price
         notional = abs(order.quantity * float(order.price))
         if notional > self.max_gross_notional:
+            logging.info(json.dumps({
+                "event": "risk_reject",
+                "reason": "gross_notional",
+                "order_id": order.id,
+                "owner": getattr(order, 'owner_id', 'default'),
+                "notional": notional,
+                "max_gross_notional": self.max_gross_notional,
+            }))
             return False
         # Check per-symbol exposure
         pos = self.portfolio.positions.get(order.symbol, 0)
         projected = pos + (order.quantity if order.side == 'buy' else -order.quantity)
         if abs(projected) > self.max_symbol_position:
+            logging.info(json.dumps({
+                "event": "risk_reject",
+                "reason": "symbol_exposure",
+                "order_id": order.id,
+                "owner": getattr(order, 'owner_id', 'default'),
+                "symbol": order.symbol,
+                "projected": projected,
+                "max_symbol_position": self.max_symbol_position,
+            }))
             return False
         # Rate limit per owner
         if self.order_rate_limit_per_sec is not None:
-            owner = getattr(order, 'owner_id', 'default')
             now = time.time()
             dq = self._owner_to_timestamps.get(owner)
             if dq is None:
@@ -1278,10 +1507,17 @@ class RiskManager:
             while dq and dq[0] < one_sec_ago:
                 dq.popleft()
             if len(dq) > self.order_rate_limit_per_sec:
+                logging.info(json.dumps({
+                    "event": "risk_reject",
+                    "reason": "rate_limit",
+                    "order_id": order.id,
+                    "owner": owner,
+                    "rate": len(dq),
+                    "limit": self.order_rate_limit_per_sec,
+                }))
                 return False
         # Drawdown kill switch per owner (based on simple equity calc)
         if self.owner_drawdown_limit is not None and self.owner_portfolios is not None and self.price_provider is not None:
-            owner = getattr(order, 'owner_id', 'default')
             pf = self.owner_portfolios.get_portfolio(owner)
             if pf is not None:
                 # Estimate equity = cash + sum(pos * price)
@@ -1299,7 +1535,108 @@ class RiskManager:
                     self._owner_peak_equity[owner] = peak
                 dd = 0.0 if peak <= 0 else (peak - equity) / peak
                 if dd > self.owner_drawdown_limit:
+                    logging.info(json.dumps({
+                        "event": "risk_reject",
+                        "reason": "drawdown_limit",
+                        "order_id": order.id,
+                        "owner": owner,
+                        "drawdown": dd,
+                        "limit": self.owner_drawdown_limit,
+                    }))
                     return False
+        # Leverage cap (portfolio-level gross exposure / equity)
+        if self.max_leverage is not None and self.owner_portfolios is not None and self.price_provider is not None:
+            pf = self.owner_portfolios.get_portfolio(owner)
+            if pf is not None:
+                try:
+                    # Compute current equity
+                    equity = float(pf.cash)
+                    exposures = 0.0
+                    for sym, qty in pf.positions.items():
+                        px = self.price_provider(sym)
+                        if px is not None:
+                            exposures += abs(float(qty) * float(px))
+                            equity += float(qty) * float(px)
+                    # Projected position on this symbol
+                    px_new = self.price_provider(order.symbol) or float(order.price)
+                    projected_qty = pf.positions.get(order.symbol, 0) + (order.quantity if order.side == 'buy' else -order.quantity)
+                    exposures = exposures - abs(pf.positions.get(order.symbol, 0) * (self.price_provider(order.symbol) or 0.0)) + abs(projected_qty * float(px_new))
+                    if equity <= 0 or (exposures / equity) > float(self.max_leverage):
+                        try:
+                            log_payload = {
+                                "event": "risk_reject",
+                                "reason": "max_leverage",
+                                "order_id": order.id,
+                                "owner": owner,
+                                "exposures": exposures,
+                                "equity": equity,
+                                "max_leverage": float(self.max_leverage),
+                            }
+                            logging.info(json.dumps(log_payload))
+                            if hasattr(self, 'on_reject') and self.on_reject is not None:
+                                self.on_reject(log_payload)
+                        except Exception:
+                            pass
+                        return False
+                except Exception:
+                    pass
+        # Per-symbol gross exposure cap
+        if self.max_symbol_gross_exposure is not None and self.owner_portfolios is not None and self.price_provider is not None:
+            pf = self.owner_portfolios.get_portfolio(owner)
+            if pf is not None:
+                try:
+                    px = self.price_provider(order.symbol) or float(order.price)
+                    projected_qty = pf.positions.get(order.symbol, 0) + (order.quantity if order.side == 'buy' else -order.quantity)
+                    gross = abs(float(projected_qty) * float(px))
+                    if gross > float(self.max_symbol_gross_exposure):
+                        try:
+                            log_payload = {
+                                "event": "risk_reject",
+                                "reason": "symbol_gross_exposure",
+                                "order_id": order.id,
+                                "owner": owner,
+                                "symbol": order.symbol,
+                                "gross": gross,
+                                "max_symbol_gross_exposure": float(self.max_symbol_gross_exposure),
+                            }
+                            logging.info(json.dumps(log_payload))
+                            if hasattr(self, 'on_reject') and self.on_reject is not None:
+                                self.on_reject(log_payload)
+                        except Exception:
+                            pass
+                        return False
+                except Exception:
+                    pass
+        # Volatility halt (z-score of last return vs window)
+        if self.volatility_halt_z is not None and self.price_provider is not None:
+            try:
+                px = self.price_provider(order.symbol)
+                if px is not None and px > 0:
+                    last_px = self._symbol_last_price.get(order.symbol)
+                    if last_px is not None and last_px > 0:
+                        r = math.log(px / last_px)
+                        dq = self._symbol_returns.get(order.symbol)
+                        if dq is None:
+                            dq = deque(maxlen=self.volatility_window)
+                            self._symbol_returns[order.symbol] = dq
+                        dq.append(r)
+                        if len(dq) >= max(5, self.volatility_window // 2):
+                            mean = float(np.mean(dq))
+                            std = float(np.std(dq))
+                            z = 0.0 if std == 0.0 else (r - mean) / std
+                            if abs(z) > float(self.volatility_halt_z):
+                                logging.info(json.dumps({
+                                    "event": "risk_reject",
+                                    "reason": "volatility_halt",
+                                    "order_id": order.id,
+                                    "symbol": order.symbol,
+                                    "z": z,
+                                    "threshold": float(self.volatility_halt_z),
+                                }))
+                                return False
+                    self._symbol_last_price[order.symbol] = float(px)
+            except Exception:
+                pass
         return True
 
 
@@ -1316,6 +1653,7 @@ class CsvLogger:
         self.exec_path = os.path.join(self.base_dir, 'executions.csv')
         self.equity_path = os.path.join(self.base_dir, 'equity_curve.csv')
         self.tca_path = os.path.join(self.base_dir, 'tca.csv')
+        self.tca_adv_path = os.path.join(self.base_dir, 'tca_adv.csv')
         # Initialize headers if files do not exist
         if not os.path.exists(self.exec_path):
             with open(self.exec_path, 'w', encoding='utf-8') as f:
@@ -1326,6 +1664,9 @@ class CsvLogger:
         if not os.path.exists(self.tca_path):
             with open(self.tca_path, 'w', encoding='utf-8') as f:
                 f.write('timestamp,symbol,side,price,mid,last_trade,slippage_mid_bps,slippage_last_bps\n')
+        if not os.path.exists(self.tca_adv_path):
+            with open(self.tca_adv_path, 'w', encoding='utf-8') as f:
+                f.write('timestamp,symbol,side,entry_price,next_price,adverse\n')
 
     def log_execution(self, execu: Execution) -> None:
         try:
@@ -1338,10 +1679,23 @@ class CsvLogger:
 
     def log_equity(self, timestamp: pd.Timestamp, net_liq: float, realized: float, cash: float) -> None:
         try:
+            # Guard against NaN/inf and naive timestamps
+            try:
+                from math import isfinite
+                if not (isfinite(float(net_liq)) and isfinite(float(realized)) and isfinite(float(cash))):
+                    return
+            except Exception:
+                pass
+            ts = timestamp
+            try:
+                if isinstance(ts, pd.Timestamp) and ts.tzinfo is None:
+                    ts = ts.tz_localize('UTC')
+            except Exception:
+                pass
             with open(self.equity_path, 'a', encoding='utf-8') as f:
-                f.write(f"{timestamp.isoformat()},{net_liq},{realized},{cash}\n")
+                f.write(f"{ts.isoformat()},{float(net_liq)},{float(realized)},{float(cash)}\n")
         except Exception as exc:
-            logging.warning("Failed to write equity log: %s", exc)
+            logging.warning("Failed to write equity log (%s): %s", self.equity_path, exc)
 
     def log_tca(self, timestamp: pd.Timestamp, symbol: str, side: str, price: float, mid: Optional[float], last_trade: Optional[float],
                 slip_mid_bps: Optional[float], slip_last_bps: Optional[float]) -> None:
@@ -1351,6 +1705,64 @@ class CsvLogger:
         except Exception as exc:
             logging.debug("Failed to write TCA log: %s", exc)
 
+    def log_tca_adv(self, timestamp: pd.Timestamp, symbol: str, side: str, entry: float, next_price: float, adverse: bool) -> None:
+        try:
+            with open(self.tca_adv_path, 'a', encoding='utf-8') as f:
+                f.write(f"{timestamp.isoformat()},{symbol},{side},{entry},{next_price},{int(adverse)}\n")
+        except Exception as exc:
+            logging.debug("Failed to write TCA adv log: %s", exc)
+
+
+class AuditLogger:
+    """JSON-lines audit logger for orders, cancels, executions, and risk decisions."""
+
+    def __init__(self, base_dir: str) -> None:
+        self.base_dir = base_dir
+        os.makedirs(self.base_dir, exist_ok=True)
+        self.audit_path = os.path.join(self.base_dir, 'audit.jsonl')
+
+    def _write(self, payload: Dict[str, Any]) -> None:
+        try:
+            with open(self.audit_path, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(payload, default=str) + "\n")
+        except Exception as exc:
+            logging.debug("Audit write failed: %s", exc)
+
+    def log_new_order(self, order: "Order") -> None:
+        self._write({
+            "ts": pd.Timestamp.utcnow().tz_localize('UTC').isoformat(),
+            "event": "order_accepted",
+            "order_id": order.id,
+            "symbol": order.symbol,
+            "side": order.side,
+            "type": order.type,
+            "price": order.price,
+            "quantity": order.quantity,
+            "owner": getattr(order, 'owner_id', ''),
+            "tif": getattr(order, 'tif', 'GTC'),
+        })
+
+    def log_cancel(self, order_id: str) -> None:
+        self._write({
+            "ts": pd.Timestamp.utcnow().tz_localize('UTC').isoformat(),
+            "event": "order_cancel",
+            "order_id": order_id,
+        })
+
+    def log_execution(self, execu: "Execution") -> None:
+        self._write({
+            "ts": execu.timestamp.isoformat(),
+            "event": "execution",
+            "trade_id": execu.trade_id,
+            "symbol": execu.symbol,
+            "side": execu.side,
+            "price": float(execu.price),
+            "quantity": int(execu.quantity),
+            "taker_order_id": execu.taker_order_id,
+            "maker_order_id": execu.maker_order_id,
+            "taker_owner_id": execu.taker_owner_id,
+            "maker_owner_id": execu.maker_owner_id,
+        })
 
 class EventLogger:
     """Append-only CSV event logger for orders/cancels/executions for replay."""
@@ -1359,26 +1771,43 @@ class EventLogger:
         self.base_dir = base_dir
         os.makedirs(self.base_dir, exist_ok=True)
         self.events_path = os.path.join(self.base_dir, 'events.csv')
+        self._seq: int = 0
         if not os.path.exists(self.events_path):
             with open(self.events_path, 'w', encoding='utf-8') as f:
-                f.write('timestamp,event,order_id,symbol,side,type,price,quantity,extra\n')
+                f.write('seq,timestamp,event,order_id,symbol,side,type,price,quantity,extra\n')
+        else:
+            # Attempt to recover last sequence id
+            try:
+                last = None
+                with open(self.events_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        last = line
+                if last and not last.startswith('seq,'):
+                    parts = last.strip().split(',')
+                    if parts and parts[0].isdigit():
+                        self._seq = int(parts[0])
+            except Exception:
+                self._seq = 0
 
     def log_new_order(self, order: Order) -> None:
         try:
+            self._seq += 1
             with open(self.events_path, 'a', encoding='utf-8') as f:
-                f.write(f"{pd.Timestamp.utcnow().tz_localize('UTC').isoformat()},NEW,{order.id},{order.symbol},{order.side},{order.type},{order.price},{order.quantity},owner={getattr(order,'owner_id','')}\n")
+                f.write(f"{self._seq},{pd.Timestamp.utcnow().tz_localize('UTC').isoformat()},NEW,{order.id},{order.symbol},{order.side},{order.type},{order.price},{order.quantity},owner={getattr(order,'owner_id','')}\n")
         except Exception as exc:
             logging.debug("Event log (new) skipped: %s", exc)
 
     def log_cancel(self, order_id: str) -> None:
         try:
+            self._seq += 1
             with open(self.events_path, 'a', encoding='utf-8') as f:
-                f.write(f"{pd.Timestamp.utcnow().tz_localize('UTC').isoformat()},CANCEL,{order_id},,,,,,\n")
+                f.write(f"{self._seq},{pd.Timestamp.utcnow().tz_localize('UTC').isoformat()},CANCEL,{order_id},,,,,,\n")
         except Exception as exc:
             logging.debug("Event log (cancel) skipped: %s", exc)
 
     def log_execution(self, execu: "Execution", best_bid: Optional[float] = None, best_ask: Optional[float] = None) -> None:
         try:
+            self._seq += 1
             with open(self.events_path, 'a', encoding='utf-8') as f:
                 extra = []
                 if best_bid is not None:
@@ -1386,7 +1815,7 @@ class EventLogger:
                 if best_ask is not None:
                     extra.append(f"ba={best_ask}")
                 extra.append(f"maker={execu.maker_order_id}")
-                f.write(f"{execu.timestamp.isoformat()},EXEC,{execu.taker_order_id},{execu.symbol},{execu.side},,{execu.price},{execu.quantity},{' '.join(extra)}\n")
+                f.write(f"{self._seq},{execu.timestamp.isoformat()},EXEC,{execu.taker_order_id},{execu.symbol},{execu.side},,{execu.price},{execu.quantity},{' '.join(extra)}\n")
         except Exception as exc:
             logging.debug("Event log (exec) skipped: %s", exc)
 
@@ -1394,19 +1823,26 @@ class EventLogger:
         events: List[Dict[str, Any]] = []
         try:
             with open(self.events_path, 'r', encoding='utf-8') as f:
-                next(f, None)  # skip header
+                header = next(f, None)  # header
                 for line in f:
                     parts = line.strip().split(',')
                     if len(parts) < 3:
                         continue
-                    ts, ev, oid = parts[0], parts[1], parts[2]
+                    # Adjust for seq column if present
+                    idx = 0
+                    if parts[0].isdigit():
+                        seq = int(parts[0])
+                        idx = 1
+                    else:
+                        seq = None
+                    ts, ev, oid = parts[idx + 0], parts[idx + 1], parts[idx + 2]
                     # Parse common fields
-                    symbol = parts[3] if len(parts) > 3 else ''
-                    side = parts[4] if len(parts) > 4 else ''
-                    typ = parts[5] if len(parts) > 5 else ''
-                    price = float(parts[6]) if len(parts) > 6 and parts[6] else None
-                    qty = int(float(parts[7])) if len(parts) > 7 and parts[7] else None
-                    extra = parts[8] if len(parts) > 8 else ''
+                    symbol = parts[idx + 3] if len(parts) > idx + 3 else ''
+                    side = parts[idx + 4] if len(parts) > idx + 4 else ''
+                    typ = parts[idx + 5] if len(parts) > idx + 5 else ''
+                    price = float(parts[idx + 6]) if len(parts) > idx + 6 and parts[idx + 6] else None
+                    qty = int(float(parts[idx + 7])) if len(parts) > idx + 7 and parts[idx + 7] else None
+                    extra = parts[idx + 8] if len(parts) > idx + 8 else ''
                     extras: Dict[str, str] = {}
                     if extra:
                         try:
@@ -1417,6 +1853,7 @@ class EventLogger:
                         except Exception:
                             pass
                     events.append({
+                        'seq': seq,
                         'timestamp': ts,
                         'event': ev,
                         'order_id': oid,
@@ -1551,52 +1988,157 @@ class Venue:
 class MarketRouter:
     def __init__(self) -> None:
         self.venues: Dict[str, Venue] = {}
+        self.retry_attempts: int = 1
+        self.retry_backoff_ms: int = 50
+        self.inter_market_sweep: bool = True
+        self.retry_total: int = 0
+        self.retry_failures: int = 0
 
     def add_venue(self, venue: Venue) -> None:
         self.venues[venue.name] = venue
 
-    def nbbo(self) -> Dict[str, Optional[float]]:
+    def nbbo(self) -> Dict[str, Any]:
         best_bid = None
         best_ask = None
-        for v in self.venues.values():
+        venues: List[Dict[str, Any]] = []
+        for name, v in self.venues.items():
             bb, ba = v.top_of_book()
+            venues.append({"name": name, "best_bid": bb, "best_ask": ba, "fee_bps": v.fee_bps, "latency_ms": v.latency_ms})
             if bb is not None:
                 best_bid = bb if best_bid is None else max(best_bid, bb)
             if ba is not None:
                 best_ask = ba if best_ask is None else min(best_ask, ba)
-        return {"best_bid": best_bid, "best_ask": best_ask}
+        return {"best_bid": best_bid, "best_ask": best_ask, "venues": venues}
 
     def route_order(self, order: Order) -> None:
         if not self.venues:
             raise RuntimeError("No venues configured")
-        # For now, simple route: pick venue with best contra price (NBBO) and submit
-        target: Optional[Venue] = None
-        if order.side == 'buy':
-            best_px = None
+        # Inter-market sweep using estimated available depth on each venue, honoring limit
+        remaining = int(order.quantity)
+        limit = float(order.price) if order.type == 'limit' else (math.inf if order.side == 'buy' else 0.0)
+        visited = 0
+        if not self.inter_market_sweep:
+            # Single venue route: choose best effective price once
+            target: Optional[Venue] = None
+            target_px: Optional[float] = None
             for v in self.venues.values():
-                _, ask = v.top_of_book()
-                if ask is None:
-                    continue
-                if order.type == 'limit' and ask > float(order.price):
-                    continue
-                if best_px is None or ask < best_px:
-                    best_px = ask
-                    target = v
-        else:
-            best_px = None
+                bid, ask = v.top_of_book()
+                if order.side == 'buy':
+                    px = ask
+                    if px is None or px > limit:
+                        continue
+                    eff_px = px * (1.0 + (v.fee_bps / 10000.0))
+                    if target_px is None or eff_px < target_px:
+                        target_px = eff_px
+                        target = v
+                else:
+                    px = bid
+                    if px is None or (order.type == 'limit' and px < limit):
+                        continue
+                    eff_px = px * (1.0 - (v.fee_bps / 10000.0))
+                    if target_px is None or eff_px > target_px:
+                        target_px = eff_px
+                        target = v
+            if target is None:
+                target = next(iter(self.venues.values()))
+            attempts = 0
+            while attempts < max(1, self.retry_attempts):
+                try:
+                    child = Order(
+                        id=uuid.uuid4().hex,
+                        price=(float(order.price) if order.type == 'limit' else 0.0),
+                        quantity=remaining,
+                        side=order.side,
+                        type='limit' if order.type == 'limit' else 'market',
+                        symbol=order.symbol,
+                        tif=order.tif,
+                        post_only=False,
+                        owner_id=order.owner_id,
+                    )
+                    if target.latency_ms > 0:
+                        time.sleep(target.latency_ms / 1000.0)
+                    target.engine.match_order(child)
+                    break
+                except Exception:
+                    attempts += 1
+                    self.retry_total += 1
+                    if attempts < self.retry_attempts:
+                        time.sleep(self.retry_backoff_ms / 1000.0)
+                    else:
+                        self.retry_failures += 1
+                        raise
+            return
+
+        while remaining > 0 and visited < len(self.venues):
+            target: Optional[Venue] = None
+            target_px: Optional[float] = None
+            # Choose best effective contra price among venues within limit (adjust for taker fee)
             for v in self.venues.values():
-                bid, _ = v.top_of_book()
-                if bid is None:
-                    continue
-                if order.type == 'limit' and bid < float(order.price):
-                    continue
-                if best_px is None or bid > best_px:
-                    best_px = bid
-                    target = v
-        if target is None:
-            # fallback: first venue
-            target = next(iter(self.venues.values()))
-        target.engine.match_order(order)
+                bid, ask = v.top_of_book()
+                if order.side == 'buy':
+                    px = ask
+                    if px is None or px > limit:
+                        continue
+                    # Effective price includes taker fee impact
+                    eff_px = px * (1.0 + (v.fee_bps / 10000.0))
+                    if target_px is None or eff_px < target_px:
+                        target_px = eff_px
+                        target = v
+                else:
+                    px = bid
+                    if px is None or (order.type == 'limit' and px < limit):
+                        continue
+                    eff_px = px * (1.0 - (v.fee_bps / 10000.0))
+                    if target_px is None or eff_px > target_px:
+                        target_px = eff_px
+                        target = v
+            if target is None:
+                break
+            # Estimate venue depth up to limit using engine's _available_depth
+            try:
+                if order.side == 'buy':
+                    eff = limit if order.type == 'limit' else math.inf
+                    avail = target.engine._available_depth('buy', eff)  # type: ignore[attr-defined]
+                else:
+                    eff = limit if order.type == 'limit' else 0.0
+                    avail = target.engine._available_depth('sell', eff)  # type: ignore[attr-defined]
+            except Exception:
+                avail = remaining
+            qty = max(0, min(remaining, int(avail)))
+            if qty <= 0:
+                break
+            child = Order(
+                id=uuid.uuid4().hex,
+                price=(float(order.price) if order.type == 'limit' else 0.0),
+                quantity=qty,
+                side=order.side,
+                type='limit' if order.type == 'limit' else 'market',
+                symbol=order.symbol,
+                tif=order.tif,
+                post_only=False,
+                owner_id=order.owner_id,
+            )
+            # Simulate venue latency
+            if target.latency_ms > 0:
+                time.sleep(target.latency_ms / 1000.0)
+            # Retry on failure per venue
+            attempts = 0
+            while attempts < max(1, self.retry_attempts):
+                try:
+                    target.engine.match_order(child)
+                    break
+                except Exception:
+                    attempts += 1
+                    self.retry_total += 1
+                    if attempts < self.retry_attempts:
+                        time.sleep(self.retry_backoff_ms / 1000.0)
+                    else:
+                        # Advance to next venue
+                        self.retry_failures += 1
+                        visited += 1
+                        continue
+            remaining -= qty
+            visited += 1
 
 if SQLA_AVAILABLE:
     Base = declarative_base()
@@ -1660,6 +2202,39 @@ if SQLA_AVAILABLE:
                     s.commit()
             except Exception as exc:
                 logging.warning("DB equity log failed: %s", exc)
+
+        def save_config(self, key: str, value: Dict[str, Any]) -> None:
+            try:
+                with self.Session() as s:
+                    payload = json.dumps(value)
+                    existing = s.get(ConfigORM, key)
+                    if existing is None:
+                        s.add(ConfigORM(key=key, value=payload))
+                    else:
+                        existing.value = payload
+                    s.commit()
+            except Exception as exc:
+                logging.warning("DB save config failed: %s", exc)
+
+        def load_config(self, key: str) -> Optional[Dict[str, Any]]:
+            try:
+                with self.Session() as s:
+                    row = s.get(ConfigORM, key)
+                    if row is None:
+                        return None
+                    return json.loads(row.value)
+            except Exception as exc:
+                logging.warning("DB load config failed: %s", exc)
+                return None
+
+        def list_configs(self) -> List[str]:
+            try:
+                with self.Session() as s:
+                    rows = s.query(ConfigORM.key).all()
+                    return [r[0] for r in rows]
+            except Exception as exc:
+                logging.warning("DB list configs failed: %s", exc)
+                return []
 
 
 # --------------------------------------------------------------------------------------
@@ -1946,6 +2521,8 @@ class MarketDataFeed:
         self.subscribers: List[Any] = []
         self.running = False
         self._last_price: Optional[float] = None
+        self._fail_count: int = 0
+        self._simulate: bool = False
 
     def subscribe(self, client: Any) -> None:
         self.subscribers.append(client)
@@ -1987,12 +2564,60 @@ class MarketDataFeed:
 
     def start(self, interval_seconds: int = 60) -> None:
         self.running = True
+        # Warm-start: attempt an immediate tick so subscribers (e.g., MarketMaker)
+        # can produce quotes without waiting for the first loop iteration.
+        try:
+            md = self.fetch_market_data()
+            if md is not None:
+                self._fail_count = 0
+                self._simulate = False
+                self._last_price = float(md.get('price', 0.0))
+                self.broadcast(md)
+            else:
+                # If initial fetch fails, immediately synthesize a tick to kick off UI/quotes
+                self._fail_count += 1
+                if self._fail_count >= 3:
+                    self._simulate = True
+                if self._simulate:
+                    base = float(self._last_price) if self._last_price is not None else 100.0
+                    md = {
+                        'symbol': self.symbol,
+                        'timestamp': pd.Timestamp.utcnow().tz_localize('UTC'),
+                        'price': float(base),
+                        'volume': 0,
+                    }
+                    self._last_price = float(base)
+                    self.broadcast(md)
+        except Exception as exc:
+            logging.debug("MarketDataFeed warm-start failed: %s", exc)
         while self.running:
             try:
-                market_data = self.fetch_market_data()
-                if market_data:
+                market_data = None
+                if not self._simulate:
+                    market_data = self.fetch_market_data()
+                if market_data is not None:
+                    self._fail_count = 0
+                    self._simulate = False
                     self._last_price = float(market_data['price'])
                     self.broadcast(market_data)
+                else:
+                    self._fail_count += 1
+                    # After a few consecutive failures, enable synthetic ticks to keep the system alive offline
+                    if self._fail_count >= 3:
+                        self._simulate = True
+                    if self._simulate:
+                        # Simple random walk simulation around last price; initialize if unknown
+                        base = float(self._last_price) if self._last_price is not None else 100.0
+                        shock = float(np.random.normal(loc=0.0, scale=base * 0.001))
+                        sim_price = max(0.01, base + shock)
+                        self._last_price = sim_price
+                        md = {
+                            'symbol': self.symbol,
+                            'timestamp': pd.Timestamp.utcnow().tz_localize('UTC'),
+                            'price': float(sim_price),
+                            'volume': 0,
+                        }
+                        self.broadcast(md)
             except Exception as exc:
                 logging.exception("MarketDataFeed error: %s", exc)
             time.sleep(max(1, int(interval_seconds)))
@@ -2263,13 +2888,21 @@ class MomentumTrader(AlgorithmicTrader):
             return
         price_change = self.prices[-1] - self.prices[0]
         if price_change > 0:
-            order = Order(id=uuid.uuid4().hex, price=self.current_price, quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='momentum')
+            # Cross the book aggressively at current best ask
+            best_ask = self.matching_engine.order_book.get_best_ask()
+            if best_ask is None:
+                return
+            order = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='momentum')
             self.matching_engine.match_order(order)
-            logging.info(f"MomentumTrader placed a buy order at {self.current_price}")
+            logging.info(f"MomentumTrader placed a buy order at {best_ask}")
         elif price_change < 0:
-            order = Order(id=uuid.uuid4().hex, price=self.current_price, quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='momentum')
+            # Cross the book aggressively at current best bid
+            best_bid = self.matching_engine.order_book.get_best_bid()
+            if best_bid is None:
+                return
+            order = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='momentum')
             self.matching_engine.match_order(order)
-            logging.info(f"MomentumTrader placed a sell order at {self.current_price}")
+            logging.info(f"MomentumTrader placed a sell order at {best_bid}")
 
 
 class EMABasedTrader(AlgorithmicTrader):
@@ -2291,13 +2924,19 @@ class EMABasedTrader(AlgorithmicTrader):
         short_ema = self._calculate_ema(self.short_window)
         long_ema = self._calculate_ema(self.long_window)
         if short_ema > long_ema:
-            order = Order(id=uuid.uuid4().hex, price=self.current_price, quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='ema')
+            best_ask = self.matching_engine.order_book.get_best_ask()
+            if best_ask is None:
+                return
+            order = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='ema')
             self.matching_engine.match_order(order)
-            logging.info(f"EMABasedTrader placed a buy order at {self.current_price}")
+            logging.info(f"EMABasedTrader placed a buy order at {best_ask}")
         elif short_ema < long_ema:
-            order = Order(id=uuid.uuid4().hex, price=self.current_price, quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='ema')
+            best_bid = self.matching_engine.order_book.get_best_bid()
+            if best_bid is None:
+                return
+            order = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='ema')
             self.matching_engine.match_order(order)
-            logging.info(f"EMABasedTrader placed a sell order at {self.current_price}")
+            logging.info(f"EMABasedTrader placed a sell order at {best_bid}")
 
     def _calculate_ema(self, window: int) -> float:
         weights = np.exp(np.linspace(-1.0, 0.0, window))
@@ -2316,13 +2955,19 @@ class SwingTrader(AlgorithmicTrader):
         if self.current_price is None:
             return
         if self.current_price <= self.support_level:
-            order = Order(id=uuid.uuid4().hex, price=self.current_price, quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='swing')
+            best_ask = self.matching_engine.order_book.get_best_ask()
+            if best_ask is None:
+                return
+            order = Order(id=uuid.uuid4().hex, price=float(best_ask), quantity=100, side='buy', type='limit', symbol=self.symbol, owner_id='swing')
             self.matching_engine.match_order(order)
-            logging.info(f"SwingTrader placed a buy order at {self.current_price}")
+            logging.info(f"SwingTrader placed a buy order at {best_ask}")
         elif self.current_price >= self.resistance_level:
-            order = Order(id=uuid.uuid4().hex, price=self.current_price, quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='swing')
+            best_bid = self.matching_engine.order_book.get_best_bid()
+            if best_bid is None:
+                return
+            order = Order(id=uuid.uuid4().hex, price=float(best_bid), quantity=100, side='sell', type='limit', symbol=self.symbol, owner_id='swing')
             self.matching_engine.match_order(order)
-            logging.info(f"SwingTrader placed a sell order at {self.current_price}")
+            logging.info(f"SwingTrader placed a sell order at {best_bid}")
 
     def handle_market_data(self, data: Dict[str, Any]) -> None:
         self.current_price = float(data['price'])
@@ -2330,6 +2975,8 @@ class SwingTrader(AlgorithmicTrader):
 
 class NewsFetcher:
     def __init__(self, api_key: str, timeout_seconds: int = 10, max_retries: int = 3) -> None:
+        if not NEWSAPI_AVAILABLE:
+            raise RuntimeError("newsapi-python is not available; install newsapi-python to use SentimentAnalysisTrader")
         self.newsapi = NewsApiClient(api_key=api_key)
         self.timeout_seconds = max(1, int(timeout_seconds))
         self.max_retries = max(1, int(max_retries))
@@ -2343,7 +2990,6 @@ class NewsFetcher:
                     language='en',
                     sort_by='publishedAt',
                     page_size=5,
-                            timeout=self.timeout_seconds,
                 )
                 headlines = [article['title'] for article in all_articles.get('articles', [])]
                 return headlines
@@ -2587,11 +3233,22 @@ def run_backtest(
     csv_logger: Optional[CsvLogger] = None,
 ) -> None:  # noqa: ARG001
     symbol = market_maker.symbol
+    if historical_data is None or len(historical_data) == 0:
+        logging.warning("run_backtest: empty historical_data for %s", symbol)
+        return
+    # Ensure MM tracks inventory via executions
+    try:
+        matching_engine.subscribe_trades(market_maker.on_execution)
+    except Exception:
+        pass
     for _, row in historical_data.iterrows():
         # Advance engine time for latency scheduling
         ts = pd.to_datetime(row['Date'], utc=True) if not isinstance(row['Date'], pd.Timestamp) else row['Date']
-        if isinstance(ts, pd.Timestamp) and ts.tzinfo is None:
-            ts = ts.tz_localize('UTC')
+        if isinstance(ts, pd.Timestamp):
+            if ts.tzinfo is None:
+                ts = ts.tz_localize('UTC')
+            else:
+                ts = ts.tz_convert('UTC')
         matching_engine.set_time(ts)
         matching_engine.process_delayed_orders(ts)
 
@@ -2743,6 +3400,27 @@ def main() -> None:
     parser.add_argument('--optuna-trials', type=int, default=0, help='Run Optuna parameter search with N trials (0 to disable)')
     parser.add_argument('--mlflow-uri', default=None, help='MLflow tracking URI (set to enable MLflow logging)')
     parser.add_argument('--mlflow-experiment', default='trading-simulator', help='MLflow experiment name')
+    # Trader parameterization
+    parser.add_argument('--momentum-lookback', type=int, default=5, help='MomentumTrader lookback (bars)')
+    parser.add_argument('--ema-short-window', type=int, default=5, help='EMABasedTrader short EMA window (bars)')
+    parser.add_argument('--ema-long-window', type=int, default=20, help='EMABasedTrader long EMA window (bars)')
+    parser.add_argument('--swing-support', type=float, default=100.0, help='SwingTrader support level')
+    parser.add_argument('--swing-resistance', type=float, default=200.0, help='SwingTrader resistance level')
+
+    # Market Maker parameters (CLI overrides)
+    parser.add_argument('--mm-gamma', type=float, default=0.1, help='Avellaneda–Stoikov risk aversion (gamma)')
+    parser.add_argument('--mm-k', type=float, default=1.5, help='Avellaneda–Stoikov order book intensity (k)')
+    parser.add_argument('--mm-horizon-seconds', type=float, default=60.0, help='Quote horizon in seconds')
+    parser.add_argument('--mm-max-inventory', type=int, default=1000, help='Max inventory before scaling down sizes')
+    parser.add_argument('--mm-base-order-size', type=int, default=100, help='Base size for each quote level')
+    parser.add_argument('--mm-min-spread', type=float, default=0.01, help='Minimum absolute spread between bid/ask')
+    parser.add_argument('--mm-num-levels', type=int, default=2, help='Number of laddered quote levels per side')
+    parser.add_argument('--mm-level-spacing-bps', type=float, default=2.0, help='Spacing between ladder levels in bps of mid')
+    parser.add_argument('--mm-size-decay', type=float, default=0.7, help='Geometric decay factor for ladder sizes (0-1]')
+    parser.add_argument('--mm-momentum-window', type=int, default=10, help='Window for momentum skewing')
+    parser.add_argument('--mm-alpha-skew', type=float, default=0.5, help='Weight for momentum skew on reservation price')
+    parser.add_argument('--mm-vol-widen-z', type=float, default=2.0, help='Z-score threshold to widen spread under volatility')
+    parser.add_argument('--mm-drawdown-limit', type=float, default=0.2, help='MM-local drawdown kill switch (fraction, e.g., 0.2=20%%)')
 
     args = parser.parse_args()
 
@@ -2812,9 +3490,9 @@ def main() -> None:
                 eng.subscribe_trades(makers[sym].on_execution)
                 if args.enable_traders:
                     traders_map[sym] = [
-                        MomentumTrader(symbol=sym, matching_engine=eng, interval=0.0),
-                        EMABasedTrader(symbol=sym, matching_engine=eng, interval=0.0),
-                        SwingTrader(symbol=sym, matching_engine=eng, interval=0.0),
+                        MomentumTrader(symbol=sym, matching_engine=eng, interval=0.0, lookback=int(args.momentum_lookback)),
+                        EMABasedTrader(symbol=sym, matching_engine=eng, interval=0.0, short_window=int(args.ema_short_window), long_window=int(args.ema_long_window)),
+                        SwingTrader(symbol=sym, matching_engine=eng, interval=0.0, support_level=float(args.swing_support), resistance_level=float(args.swing_resistance)),
                     ]
             run_multi_backtest(
                 data_map,
@@ -2847,9 +3525,9 @@ def main() -> None:
             backtest_traders: List[AlgorithmicTrader] = []
             if args.enable_traders:
                 backtest_traders = [
-                    MomentumTrader(symbol=symbol, matching_engine=matching_engine, interval=0.0),
-                    EMABasedTrader(symbol=symbol, matching_engine=matching_engine, interval=0.0),
-                    SwingTrader(symbol=symbol, matching_engine=matching_engine, interval=0.0),
+                    MomentumTrader(symbol=symbol, matching_engine=matching_engine, interval=0.0, lookback=int(args.momentum_lookback)),
+                    EMABasedTrader(symbol=symbol, matching_engine=matching_engine, interval=0.0, short_window=int(args.ema_short_window), long_window=int(args.ema_long_window)),
+                    SwingTrader(symbol=symbol, matching_engine=matching_engine, interval=0.0, support_level=float(args.swing_support), resistance_level=float(args.swing_resistance)),
                 ]
             run_backtest(
                 historical_data,
@@ -2917,7 +3595,9 @@ def main() -> None:
 
     # Live mode
     symbol = args.symbol
-    fix_app = FixApplication(matching_engine)
+    fix_app: Optional[FixApplication] = None
+    if SIMPLEFIX_AVAILABLE:
+        fix_app = FixApplication(matching_engine)
     market_data_feed = MarketDataFeed(symbol=symbol)
     market_maker = MarketMaker(
         symbol=symbol,
@@ -2940,8 +3620,9 @@ def main() -> None:
     matching_engine.subscribe_trades(market_maker.on_execution)
 
     # Start FIX server thread
-    fix_thread = threading.Thread(target=fix_app.start, kwargs={'host': args.fix_host, 'port': args.fix_port}, daemon=True)
-    fix_thread.start()
+    if fix_app is not None:
+        fix_thread = threading.Thread(target=fix_app.start, kwargs={'host': args.fix_host, 'port': args.fix_port}, daemon=True)
+        fix_thread.start()
 
     # Start market data feed thread
     feed_thread = threading.Thread(target=market_data_feed.start, kwargs={'interval_seconds': args.md_interval}, daemon=True)
@@ -2954,27 +3635,27 @@ def main() -> None:
     traders: List[AlgorithmicTrader] = []
     trader_threads: List[threading.Thread] = []
     if args.enable_traders:
-        momentum_trader = MomentumTrader(symbol=symbol, matching_engine=matching_engine, interval=10)
-        ema_trader = EMABasedTrader(symbol=symbol, matching_engine=matching_engine, interval=30)
-        swing_trader = SwingTrader(symbol=symbol, matching_engine=matching_engine, interval=15)
+        momentum_trader = MomentumTrader(symbol=symbol, matching_engine=matching_engine, interval=10, lookback=int(args.momentum_lookback))
+        ema_trader = EMABasedTrader(symbol=symbol, matching_engine=matching_engine, interval=30, short_window=int(args.ema_short_window), long_window=int(args.ema_long_window))
+        swing_trader = SwingTrader(symbol=symbol, matching_engine=matching_engine, interval=15, support_level=float(args.swing_support), resistance_level=float(args.swing_resistance))
 
         traders = [momentum_trader, ema_trader, swing_trader]
-        # Sentiment trader only if both model and API key provided
-        if args.news_api_key:
-            try:
-                sentiment_trader = SentimentAnalysisTrader(
-                    symbol=symbol,
-                    matching_engine=matching_engine,
-                    model_file=args.sentiment_model_path,
-                    news_api_key=args.news_api_key,
-                    interval=60,
-                    vocab_path=args.sentiment_vocab_path,
-                )
-                traders.append(sentiment_trader)
-            except Exception as exc:
-                logging.warning("Sentiment trader disabled: %s", exc)
+    # Sentiment trader only if both model and API key provided
+    if args.news_api_key:
+        try:
+            sentiment_trader = SentimentAnalysisTrader(
+                symbol=symbol,
+                matching_engine=matching_engine,
+                model_file=args.sentiment_model_path,
+                news_api_key=args.news_api_key,
+                interval=60,
+                vocab_path=args.sentiment_vocab_path,
+            )
+            traders.append(sentiment_trader)
+        except Exception as exc:
+            logging.warning("Sentiment trader disabled: %s", exc)
 
-        trader_threads = start_trader_threads(traders, market_data_feed)
+    trader_threads = start_trader_threads(traders, market_data_feed)
 
     # Optional: liquidity injection
     liquidity_thread: Optional[threading.Thread] = None
@@ -2993,7 +3674,11 @@ def main() -> None:
         # Stop everything gracefully
         market_maker.stop()
         market_data_feed.stop()
-        fix_app.stop()
+        if fix_app is not None:
+            try:
+                fix_app.stop()
+            except Exception:
+                pass
         if traders:
             stop_traders(traders, trader_threads)
         if liquidity_thread:

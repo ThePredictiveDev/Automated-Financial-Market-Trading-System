@@ -1,9 +1,9 @@
 ## Automated Financial Market Trading System
-Comprehensive, production-ready Python 3.11+ trading simulator. It models a realistic microstructure with a limit order book, a top-of-book matching engine that supports partial fills, a TCP FIX server, live intraday market data from `yahooquery`, a market maker and synthetic liquidity provider, multiple algorithmic traders, portfolio and risk management, and robust CSV logging. Use the CLI in `trading_simulator_with_algorithmic_traders.py` for backtests and live simulations, explore the components interactively in `Trading Simulator in Python With Algorithmic Traders.ipynb`, or run the web-based GUI in `gui_app.py`.
+Comprehensive, production-ready Python 3.11+ trading simulator. It models a realistic microstructure with a limit order book, a top-of-book matching engine that supports partial fills, a TCP FIX server, live intraday market data from `yahooquery`, a market maker and synthetic liquidity provider, multiple algorithmic traders, portfolio and risk management, and robust CSV logging. Use the CLI in `trading_simulator_with_algorithmic_traders.py` for backtests and live simulations, explore the components interactively in `Trading Simulator in Python With Algorithmic Traders.ipynb`.
 
 Audience guidance
 - Notebook (`Trading Simulator in Python With Algorithmic Traders.ipynb`): best for new and intermediate users to learn concepts step-by-step with inline explanations.
-- CLI/GUI (`trading_simulator_with_algorithmic_traders.py`, `gui_app.py`): best for advanced/experienced users who want full control, automation, multi-asset backtests, FIX connectivity, and configurable microstructure.
+- CLI (`trading_simulator_with_algorithmic_traders.py`): best for advanced/experienced users who want full control, automation, multi-asset backtests, FIX connectivity, and configurable microstructure.
 
 ### Table of contents
 - Features and architecture
@@ -24,7 +24,6 @@ Audience guidance
 - Backtesting workflow
 - Troubleshooting and operational notes
 - Notebook guide: `Trading Simulator in Python With Algorithmic Traders.ipynb`
-- GUI guide: `gui_app.py` (FastAPI/uvicorn)
 - Project structure
 - License
 
@@ -295,7 +294,7 @@ TICK_SIZE['AAPL'] = 0.01
 LOT_SIZE['AAPL'] = 1
 DECIMAL_PRECISION['AAPL'] = 2
 ```
-Note: these are advanced, code-level settings; not all are exposed as CLI flags. The GUI does not expose them either by default.
+Note: these are advanced, code-level settings; not all are exposed as CLI flags.
 
 ### CSV logging and analytics
 - `executions.csv`: timestamp, symbol, price, quantity, side, taker_order_id, maker_order_id, trade_id.
@@ -355,7 +354,6 @@ Tips
 - Sentiment trader disabled: if the Keras model expects preprocessed inputs and no vocabulary is provided, the trader auto-disables to avoid garbage predictions.
 - FIX connectivity: ensure firewalls allow TCP on the configured port; the server binds to `--fix-host`/`--fix-port`.
 - Windows PowerShell: prefix long commands with backticks for line continuation, or put arguments on one line.
-- GUI host/port already in use: if port 8000 is occupied, choose another with `--port 8001` when starting uvicorn.
 - CSV files locked on Windows: close Excel or other viewers before running; the app appends to CSVs during execution.
  - Auction mode and price bands: these are advanced features intended for programmatic use. If you see unexpected rejections, confirm price band settings and session hours.
 
@@ -370,74 +368,10 @@ How to run
 - Run all cells sequentially. Some cells create threads; stop them at the end via the provided stop cells.
 - Install minimal dependencies first: `pip install yahooquery simplefix pandas numpy` (add `tensorflow newsapi-python` for sentiment).
 - If you hit rate limits, re-run after a short backoff; consider adding `requests-cache` and a rate limiter.
-## GUI guide: gui_app.py (FastAPI)
-The GUI exposes a REST API and WebSocket stream and renders a single-page interface with controls for sessions, strategies, manual orders, portfolio, and optimization. It’s ideal if you prefer a browser-based workflow with minimal terminal usage.
-
-### Install
-```bash
-pip install fastapi uvicorn
-# plus simulator deps
-pip install yahooquery simplefix pandas numpy
-# optional (sentiment, caching, parquet, optimization, db, tracking)
-pip install tensorflow==2.15.1 newsapi-python requests-cache requests-ratelimiter pyrate-limiter pyarrow optuna mlflow SQLAlchemy psycopg2-binary
-```
-
-### Start the server
-```bash
-uvicorn gui_app:app --reload --host 0.0.0.0 --port 8000
-```
-Open `http://localhost:8000` in a browser.
-
-### Start a session
-- Mode: `backtest` (runs to completion) or `live` (continuous until stopped).
-- Symbols: set `symbol` or multi-asset `symbols` (comma-separated) for backtests.
-- Dates: `start_date`, `end_date` for backtests.
-- Traders: toggle `Enable Traders` (Momentum/EMA/Swing). Add Custom threshold or Sentiment options (model path + NewsAPI key + optional vocab).
-- Market data: `MD Interval (s)` for live cadence.
-- Microstructure: `Slippage (bps per 100 shares)`, `Latency (ms)`.
-- FIX: toggle `Enable FIX`, set host/port to accept external FIX messages.
-- Risk: Max order qty, per-symbol position, gross notional.
-- Portfolio/fees: Initial cash, fee bps.
-- Output: `Log Dir` for CSVs; `Export HTML Report` and `Report Output` (backtests).
-- Optional DB: `DB URI` (e.g., `postgresql+psycopg2://user:pass@host/db`) to store executions/equity if SQLAlchemy is installed.
-
-Click Start. Live sessions stream equity and executions; backtests run in a background thread and stop automatically.
-
-### Strategies panel
-- Add a trader by selecting its name and passing JSON params (e.g., `{ "interval": 10, "lookback": 5 }`).
-- Manage active traders: delete or update params live (supported fields vary by trader).
-
-### Manual orders
-- Place limit or market orders; leave price blank or 0 for market orders.
-- Cancel an order by providing its `order_id`.
-
-### Real-time updates
-- WebSocket streams push equity curve and last executions to the page.
-
-### Optimization panel
-- Start Optuna parameter search (if installed). Optionally set MLflow URI/experiment for tracking. Best score/params update live.
-
-### REST API (selected)
-- `POST /api/start` Start a session (JSON body mirrors form fields)
-- `POST /api/stop` Stop the session
-- `GET /api/state` Current snapshot (order book, portfolio, equity, active traders, optimization)
-- `GET /api/strategies` List built-in strategy specs
-- `POST /api/traders` Add trader; `PATCH /api/traders/{id}` update; `DELETE /api/traders/{id}` remove
-- `POST /api/order` Submit order; `POST /api/cancel` Cancel order
-- `POST /api/optimize` Start Optuna tuning
-
-### Notes
-- Live sessions subscribe the controller to market data ticks to log equity continuously. CSVs are written to `Log Dir` and optionally to DB if configured.
-- If the browser disconnects, the session continues server-side until you click Stop or terminate the process.
-- Security: This sample app has no authentication. Do not expose it to the internet without adding auth/TLS.
-
-Important differences vs. CLI
-- The CLI script integrates portfolio/risk management, robust CSV logging, improved retry/cache handling, UTC normalization, and a hardened execution path. Prefer the CLI for production-like runs.
 
 ## Project structure
 - `trading_simulator_with_algorithmic_traders.py`: main CLI with all components wired together.
 - `Trading Simulator in Python With Algorithmic Traders.ipynb`: interactive notebook walkthrough.
-- `gui_app.py`: FastAPI server and single-page UI for controlling sessions, traders, and optimization.
 - `sentiment_classifier_model.keras`: optional Keras sentiment model file used by the sentiment trader.
 - `.cache/`: on-disk cache (market data history, response cache).
 - `.logs/`: CSV logs (`executions.csv`, `equity_curve.csv`) created at runtime.
