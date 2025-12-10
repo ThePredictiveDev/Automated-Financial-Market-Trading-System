@@ -103,10 +103,10 @@ order_book.display_order_book()
 
 ```
 ### Synthetic Liquidity Controls
-Inject synthetic liquidity into the order book to simulate a more dynamic trading environment:
+Inject synthetic liquidity into the orderbook to simulate a more dynamic trading environment:
 ```python
 liquidity_provider = SyntheticLiquidityProvider(symbol=symbol, matching_engine=matching_engine, num_orders=10)
-liquidity_provider.generate_liquidity()
+liquidity_provider generate_liquidity()
 
 # Optionally, inject liquidity at regular intervals
 def auto_inject_liquidity(provider, interval=5):
