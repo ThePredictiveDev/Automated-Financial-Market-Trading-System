@@ -1,55 +1,24 @@
-# Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
 *.pyc
 *.pyo
-*.pyd
-*.so
+.pytest_cache/
+.coverage
+htmlcov/
 
-# Packaging
-*.egg
+# Runtime artifacts
+.logs/
+.cache/
 *.egg-info/
-.eggs/
 build/
 dist/
-.build/
-
-# Environments
-.venv/
 venv/
-ENV/
-.python-version
+.venv/
 
-# Jupyter
-.ipynb_checkpoints/
+# Local secrets
+.env
 
-# IDE / Editor
+# Editor/OS cruft
 .vscode/
 .idea/
-*.swp
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Logs and caches
-logs/
-*.log
-.cache/
-*.sqlite
-
-# Data artifacts
-*.parquet
-*.feather
-*.csv
-*.tsv
-*.jsonl
-
-# Project specific
-.logs/
-*yfinance_cache*
-
-# Model artifacts
-*.keras
-*.h5
-TODO.md

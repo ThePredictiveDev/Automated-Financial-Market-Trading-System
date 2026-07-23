@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-simulator"
+version = "2.2.0"
+description = "Institutional-grade algorithmic trading simulator: order book, matching engine, risk management, market making, and backtesting."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Devansh Garg" }]
+dependencies = [
+    "numpy>=1.26,<3",
+    "pandas>=2.0,<3",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+marketdata = ["yahooquery>=2.3.7", "yfinance>=0.2.40"]
+fix = ["simplefix>=1.0.5"]
+sentiment = ["tensorflow>=2.15,<3", "newsapi-python>=0.2.7"]
+db = ["SQLAlchemy>=2.0"]
+streaming = ["redis>=5.0", "confluent-kafka>=2.3"]
+research = ["optuna>=3.5", "mlflow>=2.10"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+
+[project.scripts]
+trading-simulator = "trading_simulator.cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["trading_simulator*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

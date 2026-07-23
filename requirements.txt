@@ -1,0 +1,14 @@
+# Core (required for backtest/live/replay/demo modes)
+numpy>=1.26,<3
+pandas>=2.0,<3
+requests>=2.31
+
+# Historical/live market data
+yahooquery>=2.3.7
+yfinance>=0.2.40         # fallback data source if yahooquery fails
+requests-cache>=1.1      # optional HTTP caching for market data fetches
+requests-ratelimiter>=0.4
+pyrate-limiter>=3.1
+
+# FIX protocol adapter (connectivity.fix_app)
+simplefix>=1.0.5
