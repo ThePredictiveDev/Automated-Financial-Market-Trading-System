@@ -21,6 +21,13 @@ price level have a non-self-owner order" is an O(depth) scan per level. For
 book depths seen in backtests/paper trading this is fine; a true low-latency
 venue would maintain a per-price-level owner-count instead. Left as a
 documented follow-up rather than added speculative complexity.
+
+Locked/crossed book guard: self-trade prevention can leave a residual whose
+limit would rest at (or through) the opposite best quote when that level is
+entirely own orders. Resting that residual creates best_bid == best_ask
+(spread 0). Continuous trading forbids a locked book, so residuals that
+would lock or cross are discarded instead of rested. See
+`_would_lock_or_cross`.
 """
 from __future__ import annotations
 
@@ -54,6 +61,8 @@ class MatchingEngine:
         self.slippage_bps_per_100_shares: float = 0.0
         self._current_time: Optional[pd.Timestamp] = None
         self._delayed_orders: List[Tuple[pd.Timestamp, Order]] = []
+        # Reject orders above this size (protects the L2 book from corrupt/runaway qty).
+        self.max_order_qty: int = 100_000
 
         # Price band protection
         self.price_band_bps: float = 0.0
@@ -216,6 +225,13 @@ class MatchingEngine:
     # -- order entry ----------------------------------------------------
     def match_order(self, incoming_order: Order) -> None:
         incoming_order.validate()
+        
+        # Safety clamp: reject astronomical quantities that could be caused by numerical instability
+        # or divergent feedback loops in bot order sizing.
+        if incoming_order.quantity > 1_000_000:
+            logger.warning("Order %s rejected: quantity %d exceeds absolute safety limit", incoming_order.id, incoming_order.quantity)
+            return
+            
         with self._lock:
             if incoming_order.symbol in self._halted and self.auction_mode is None:
                 logger.warning("Order %s rejected: trading halted for %s", incoming_order.id, incoming_order.symbol)
@@ -323,6 +339,16 @@ class MatchingEngine:
         if order.quantity <= 0:
             logger.warning("Order %s rejected after lot normalization (qty<=0)", order.id)
             return
+        # Guard against runaway strategy sizing / corrupt inputs poisoning the book.
+        # Demo bots and the user risk gate stay well below this; anything larger is
+        # treated as invalid rather than rested as multi-trillion "depth".
+        max_qty = getattr(self, "max_order_qty", 100_000)
+        if max_qty and order.quantity > max_qty:
+            logger.warning(
+                "Order %s rejected: quantity %s exceeds engine max_order_qty %s",
+                order.id, order.quantity, max_qty,
+            )
+            return
         if order.type == "limit" and not self._within_price_band(order):
             logger.warning("Order %s rejected by price band: price=%s symbol=%s", order.id, order.price, order.symbol)
             return
@@ -345,6 +371,56 @@ class MatchingEngine:
 
     def _has_contra_owner(self, queue: Deque[Order], owner_id: Optional[str]) -> bool:
         return any(getattr(o, "owner_id", None) != owner_id and getattr(o, "quantity", 0) > 0 for o in queue)
+
+    def _would_lock_or_cross(self, order: Order) -> bool:
+        """True if resting this limit would create best_bid >= best_ask."""
+        if order.side == "buy":
+            best_ask = self.order_book.get_best_ask()
+            return best_ask is not None and order.price >= best_ask
+        best_bid = self.order_book.get_best_bid()
+        return best_bid is not None and order.price <= best_bid
+
+    def unlock_self_locked_book(self) -> int:
+        """Clear an already-locked book caused by same-owner bids and asks.
+
+        Cancels ask-side orders at the touch whose owner also rests on the
+        bid touch (and vice-versa on the next pass). Safe no-op when the
+        book is not locked. Returns the number of cancelled orders.
+        """
+        cancelled = 0
+        with self._lock:
+            for _ in range(1000):
+                bb = self.order_book.get_best_bid()
+                ba = self.order_book.get_best_ask()
+                if bb is None or ba is None or bb < ba:
+                    break
+                bid_q = list(self.order_book.bids.get(bb, ()))
+                ask_q = list(self.order_book.asks.get(ba, ()))
+                bid_owners = {getattr(o, "owner_id", None) for o in bid_q}
+                ask_owners = {getattr(o, "owner_id", None) for o in ask_q}
+                conflict = bid_owners & ask_owners
+                to_cancel = [
+                    o.id for o in ask_q
+                    if getattr(o, "owner_id", None) in conflict
+                ]
+                if not to_cancel:
+                    to_cancel = [
+                        o.id for o in bid_q
+                        if getattr(o, "owner_id", None) in conflict
+                    ]
+                if not to_cancel:
+                    # Different owners at a locked touch should have matched;
+                    # cancel one ask lot so the book can make progress.
+                    if ask_q:
+                        to_cancel = [ask_q[0].id]
+                    elif bid_q:
+                        to_cancel = [bid_q[0].id]
+                    else:
+                        break
+                for oid in to_cancel:
+                    self.order_book.cancel_order(oid)
+                    cancelled += 1
+        return cancelled
 
     def _match_buy_order(self, order: Order) -> None:
         effective_limit = order.price if order.type == "limit" else math.inf
@@ -369,6 +445,15 @@ class MatchingEngine:
                 return
             best_ask = self.order_book.get_best_ask()
             if order.post_only and best_ask is not None and order.price >= best_ask:
+                return
+            # Do not rest a residual that would lock/cross (common after STP
+            # skips same-owner asks at the touch). Continuous books require
+            # best_bid < best_ask.
+            if self._would_lock_or_cross(order):
+                logger.info(
+                    "Discarding residual buy %s @ %s: would lock/cross book (best ask %s)",
+                    order.id, order.price, best_ask,
+                )
                 return
             self.order_book.add_order(order)
 
@@ -396,6 +481,12 @@ class MatchingEngine:
             best_bid = self.order_book.get_best_bid()
             if order.post_only and best_bid is not None and order.price <= best_bid:
                 return
+            if self._would_lock_or_cross(order):
+                logger.info(
+                    "Discarding residual sell %s @ %s: would lock/cross book (best bid %s)",
+                    order.id, order.price, best_bid,
+                )
+                return
             self.order_book.add_order(order)
 
     def _apply_slippage(self, side: str, base_price: float, quantity: int) -> float:
@@ -404,7 +495,11 @@ class MatchingEngine:
         units = max(1.0, quantity / 100.0)
         bps = self.slippage_bps_per_100_shares * units
         sign = 1.0 if side == "buy" else -1.0
-        return float(base_price * (1.0 + sign * (bps / 10000.0)))
+        
+        # Ensure price never drops below one tick size even with extreme slippage
+        min_price = self.instruments.tick_size("") # Registry will return default 0.01
+        slippage_price = float(base_price * (1.0 + sign * (bps / 10000.0)))
+        return max(min_price, slippage_price)
 
     def _execute_order(self, order: Order, price: float, counter_side: str) -> Order:
         """Execute the incoming order against resting liquidity at `price`.

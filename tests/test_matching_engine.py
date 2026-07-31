@@ -62,6 +62,31 @@ def test_fok_fills_against_other_owner():
     assert ob.get_best_ask() is None
 
 
+def test_self_trade_residual_does_not_lock_book():
+    """Same-owner bid+ask at one price must not rest into a locked book."""
+    ob, eng = mk_engine()
+    submit(eng, id="b1", price=100.0, quantity=50, side="buy", symbol="X", owner_id="ema")
+    submit(eng, id="a1", price=100.0, quantity=50, side="sell", symbol="X", owner_id="ema")
+    bb, ba = ob.get_best_bid(), ob.get_best_ask()
+    assert bb is None or ba is None or bb < ba, "book must not lock after same-owner two-sided posts"
+    # Exactly one side should have rested; the other residual is discarded.
+    assert (bb is None) != (ba is None) or (bb is not None and ba is not None and bb < ba)
+
+
+def test_unlock_self_locked_book_clears_existing_lock():
+    """Heal path for books already locked before the rest guard existed."""
+    ob, eng = mk_engine()
+    # Bypass match_order to seed an illegal locked state directly.
+    from trading_simulator import Order
+    ob.add_order(Order(id="b1", price=100.0, quantity=50, side="buy", type="limit", symbol="X", owner_id="ema"))
+    ob.add_order(Order(id="a1", price=100.0, quantity=50, side="sell", type="limit", symbol="X", owner_id="ema"))
+    assert ob.get_best_bid() == 100.0 and ob.get_best_ask() == 100.0
+    n = eng.unlock_self_locked_book()
+    assert n >= 1
+    bb, ba = ob.get_best_bid(), ob.get_best_ask()
+    assert bb is None or ba is None or bb < ba
+
+
 def test_ioc_partial_fill_then_cancels_remainder():
     ob, eng = mk_engine()
     submit(eng, id="s1", price=50.0, quantity=5, side="sell", symbol="Y", owner_id="alice")
