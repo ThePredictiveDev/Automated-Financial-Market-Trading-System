@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Film, Circle, Square, Play, Pause, SkipBack, Rewind, FastForward, Clock, HardDrive } from 'lucide-react';
+import { apiUrl } from '../config';
 
 interface RecordingStatus {
   recording: boolean;
@@ -57,7 +58,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   // Fetch recording status
   const fetchRecordingStatus = useCallback(async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/recording/status');
+      const res = await fetch(apiUrl('/api/recording/status'));
       const data = await res.json();
       setRecordingStatus(data);
     } catch (err) {
@@ -68,7 +69,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   // Fetch replay status
   const fetchReplayStatus = useCallback(async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/replay/status');
+      const res = await fetch(apiUrl('/api/replay/status'));
       const data = await res.json();
       setReplayStatus(data);
     } catch (err) {
@@ -79,7 +80,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   // Fetch available sessions
   const fetchSessions = useCallback(async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/replay/sessions');
+      const res = await fetch(apiUrl('/api/replay/sessions'));
       const data = await res.json();
       setSessions(data.sessions || []);
     } catch (err) {
@@ -108,7 +109,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   // Recording controls
   const startRecording = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/recording/start', {
+      const res = await fetch(apiUrl('/api/recording/start'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_name: sessionName || null })
@@ -124,7 +125,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   
   const stopRecording = async () => {
     try {
-      await fetch('http://127.0.0.1:8000/api/recording/stop', { method: 'POST' });
+      await fetch(apiUrl('/api/recording/stop'), { method: 'POST' });
       fetchRecordingStatus();
       fetchSessions();
     } catch (err) {
@@ -135,7 +136,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   // Replay controls
   const loadSession = async (filename: string) => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/replay/load', {
+      const res = await fetch(apiUrl('/api/replay/load'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename })
@@ -153,7 +154,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   
   const playReplay = async () => {
     try {
-      await fetch('http://127.0.0.1:8000/api/replay/play', { method: 'POST' });
+      await fetch(apiUrl('/api/replay/play'), { method: 'POST' });
       fetchReplayStatus();
     } catch (err) {
       console.error('Failed to play replay:', err);
@@ -162,7 +163,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   
   const pauseReplay = async () => {
     try {
-      await fetch('http://127.0.0.1:8000/api/replay/pause', { method: 'POST' });
+      await fetch(apiUrl('/api/replay/pause'), { method: 'POST' });
       fetchReplayStatus();
     } catch (err) {
       console.error('Failed to pause replay:', err);
@@ -171,7 +172,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   
   const stopReplay = async () => {
     try {
-      await fetch('http://127.0.0.1:8000/api/replay/stop', { method: 'POST' });
+      await fetch(apiUrl('/api/replay/stop'), { method: 'POST' });
       fetchReplayStatus();
       // Exit replay mode
       onReplayModeChange(false);
@@ -182,7 +183,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   
   const seekReplay = async (target: number) => {
     try {
-      await fetch('http://127.0.0.1:8000/api/replay/seek', {
+      await fetch(apiUrl('/api/replay/seek'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ target })
@@ -195,7 +196,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   
   const stepReplay = async (direction: number) => {
     try {
-      await fetch('http://127.0.0.1:8000/api/replay/step', {
+      await fetch(apiUrl('/api/replay/step'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ direction })
@@ -208,7 +209,7 @@ export const ReplayPanel: React.FC<ReplayPanelProps> = ({ replayMode, onReplayMo
   
   const setSpeed = async (speed: number) => {
     try {
-      await fetch('http://127.0.0.1:8000/api/replay/speed', {
+      await fetch(apiUrl('/api/replay/speed'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ speed })

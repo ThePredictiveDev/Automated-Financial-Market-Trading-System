@@ -16,6 +16,7 @@ import { MarketActivity } from './components/MarketActivity';
 import { NBBOBar } from './components/NBBOBar';
 import { SessionSummary } from './components/SessionSummary';
 import type { SnapshotPayload, LifecycleState, EquityPoint, TradeRecord } from './types';
+import { apiUrl, wsUrl } from './config';
 
 type BottomTab = 'portfolio' | 'strategies' | 'analytics' | 'system' | 'activity' | 'replay';
 
@@ -66,7 +67,7 @@ export function App() {
       { id: 'sys1', time, msg: 'Matching Engine initialized: Continuous double auction mode', type: 'system' },
       { id: 'sys2', time, msg: 'Risk manager active: Limits set at $10,000,000 max gross notional', type: 'risk' },
       { id: 'sys3', time, msg: 'Algos initialized: Market Maker, momentum, and EMA crossover', type: 'system' },
-      { id: 'sys4', time, msg: 'Listening for WebSocket stream at ws://127.0.0.1:8000/ws/stream', type: 'system' },
+      { id: 'sys4', time, msg: `Listening for WebSocket stream at ${wsUrl('/ws/stream')}`, type: 'system' },
     ];
   });
   const [userOrderCount, setUserOrderCount] = useState(0);
@@ -164,11 +165,11 @@ export function App() {
 
     const connect = () => {
       // Choose WebSocket endpoint based on replay mode
-      const wsUrl = replayMode 
-        ? 'ws://127.0.0.1:8000/ws/replay' 
-        : 'ws://127.0.0.1:8000/ws/stream';
+      const wsUrlFull = replayMode 
+        ? wsUrl('/ws/replay') 
+        : wsUrl('/ws/stream');
       
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(wsUrlFull);
       wsRef.current = ws;
       ws.onopen = () => {
         setIsConnected(true);
@@ -381,7 +382,7 @@ export function App() {
   const handleSymbolChange = useCallback(async (symbol: string) => {
     setActiveSymbol(symbol);
     try {
-      await fetch('http://127.0.0.1:8000/api/symbol', {
+      await fetch(apiUrl('/api/symbol'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol }),
@@ -393,7 +394,7 @@ export function App() {
 
   const handleToggleStrategy = useCallback(async (name: string, enabled: boolean) => {
     try {
-      await fetch('http://127.0.0.1:8000/api/strategies/toggle', {
+      await fetch(apiUrl('/api/strategies/toggle'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ strategy_name: name, enabled }),
@@ -405,7 +406,7 @@ export function App() {
 
   const handleCancelOrder = useCallback(async (symbol: string, orderId: string) => {
     try {
-      await fetch(`http://127.0.0.1:8000/api/order/${symbol}/${orderId}`, {
+      await fetch(apiUrl(`/api/order/${symbol}/${orderId}`), {
         method: 'DELETE',
       });
       logEvent(`Cancel Request Dispatched: Order #${orderId.slice(0, 8)}`, 'submit');
@@ -457,7 +458,7 @@ export function App() {
     }
 
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/order', {
+      const res = await fetch(apiUrl('/api/order'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...params, owner_id: 'user' }),
