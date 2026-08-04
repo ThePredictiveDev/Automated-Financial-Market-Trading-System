@@ -10,6 +10,7 @@ import importlib
 
 import pytest
 
+import trading_simulator.connectivity.fix_app as fix_app
 from trading_simulator.connectivity.fix_app import FixApplication, FixClient, SIMPLEFIX_AVAILABLE
 from trading_simulator.persistence.db_logger import DbLogger, SQLA_AVAILABLE
 from trading_simulator.strategies.sentiment import SentimentAnalysisTrader, TF_AVAILABLE
@@ -17,11 +18,16 @@ from trading_simulator.core.matching_engine import MatchingEngine
 from trading_simulator.core.order_book import OrderBook
 
 
-def test_simplefix_not_available_in_this_environment():
-    assert SIMPLEFIX_AVAILABLE is False
+def test_simplefix_availability_flag_is_boolean():
+    # simplefix is listed in requirements.txt, so CI often has it installed.
+    # The important contract is that the availability flag is a real bool the
+    # FixApplication/FixClient guards can branch on.
+    assert isinstance(SIMPLEFIX_AVAILABLE, bool)
 
 
-def test_fix_application_raises_clear_error_without_simplefix():
+def test_fix_application_raises_clear_error_without_simplefix(monkeypatch):
+    # Force the missing-dependency path even when simplefix is installed.
+    monkeypatch.setattr(fix_app, "SIMPLEFIX_AVAILABLE", False)
     engine = MatchingEngine(OrderBook())
     with pytest.raises(RuntimeError) as exc_info:
         FixApplication(engine)
@@ -30,7 +36,8 @@ def test_fix_application_raises_clear_error_without_simplefix():
     assert "pip install" in msg.lower()
 
 
-def test_fix_client_raises_clear_error_without_simplefix():
+def test_fix_client_raises_clear_error_without_simplefix(monkeypatch):
+    monkeypatch.setattr(fix_app, "SIMPLEFIX_AVAILABLE", False)
     with pytest.raises(RuntimeError) as exc_info:
         FixClient()
     msg = str(exc_info.value)
