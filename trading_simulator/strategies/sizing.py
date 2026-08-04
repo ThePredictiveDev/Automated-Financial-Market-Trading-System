@@ -13,10 +13,15 @@ from __future__ import annotations
 from typing import Optional
 
 
+# Hard ceiling so a bad equity/price input cannot submit exchange-breaking sizes.
+# Matches the demo RiskManager max_order_qty used for user orders in web_server.
+DEFAULT_MAX_ORDER_QTY = 5_000
+
+
 def fixed_fraction_size(equity: float, price: float, risk_fraction: float = 0.01,
-                         min_qty: int = 1, max_qty: Optional[int] = None) -> int:
+                         min_qty: int = 1, max_qty: Optional[int] = DEFAULT_MAX_ORDER_QTY) -> int:
     """Return a share quantity worth ~`risk_fraction` of `equity` at `price`."""
-    if price <= 0 or equity <= 0:
+    if price <= 0 or equity <= 0 or not (equity < float("inf")):
         return min_qty
     qty = int((equity * risk_fraction) / price)
     qty = max(min_qty, qty)

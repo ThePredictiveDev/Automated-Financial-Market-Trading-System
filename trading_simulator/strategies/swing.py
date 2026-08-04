@@ -31,7 +31,9 @@ class SwingTrader(AlgorithmicTrader):
         if self.quantity is not None:
             return int(self.quantity)
         if self.portfolio is not None:
-            return fixed_fraction_size(self.portfolio.equity({self.symbol: price}), price, self.risk_fraction)
+            prices = dict(getattr(self, "mark_prices", None) or {})
+            prices[self.symbol] = price
+            return fixed_fraction_size(self.portfolio.equity(prices), price, self.risk_fraction)
         return 100
 
     def handle_market_data(self, data: Dict[str, Any]) -> None:

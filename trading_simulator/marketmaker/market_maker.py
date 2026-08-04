@@ -48,7 +48,7 @@ class MarketMaker:
                  min_spread: float = 0.01, num_levels: int = 2, level_spacing_bps: float = 2.0,
                  size_decay: float = 0.7, momentum_window: int = 10, alpha_skew: float = 0.5,
                  vol_widen_z: float = 2.0, drawdown_limit: float = 0.2, capital_base: float = 100_000.0,
-                 owner_id: str = "mm") -> None:
+                 ks_cooldown_ticks: int = 150, owner_id: str = "mm") -> None:
         self.symbol = symbol
         self.matching_engine = matching_engine
         self.owner_id = owner_id
@@ -74,6 +74,12 @@ class MarketMaker:
         self.current_ask_ids: List[str] = []
         self.order_id_to_side: Dict[str, str] = {}
         self.peak_equity = 0.0
+        # ks_cooldown_ticks: consecutive ticks the kill-switch must remain
+        # active before peak_equity is reset and quoting resumes.  The
+        # docstring identifies "pinned quotes off for the rest of the session"
+        # as a bug; this counter completes that fix by making the pause finite.
+        self.ks_cooldown_ticks = max(1, int(ks_cooldown_ticks))
+        self._ks_cooldown: int = 0
         self.last_mid = None
 
     def _estimate_sigma(self, window: int = 60) -> float:
@@ -85,6 +91,7 @@ class MarketMaker:
     def _compute_quotes(self, mid: float) -> Tuple[float, float, int, int]:
         sigma = self._estimate_sigma()
         T, gamma, k = self.horizon_seconds, self.gamma, self.k
+        min_price = self.matching_engine.instruments.tick_size(self.symbol)
         reservation = mid - self.inventory * gamma * (sigma ** 2) * T
         if len(self.price_history) >= self.momentum_window:
             recent = self.price_history[-self.momentum_window:]
@@ -102,8 +109,11 @@ class MarketMaker:
             if rets.size > 1 and rets.std(ddof=0) > 0:
                 z = float((rets[-1] - rets.mean()) / (rets.std(ddof=0) + 1e-12))
                 half_spread *= 1.0 + max(0.0, abs(z) - self.vol_widen_z) * 0.25
-        bid = max(0.0, reservation - half_spread)
-        ask = max(bid + self.min_spread, reservation + half_spread)
+        # Keep both quotes on the exchange's positive price grid. Using 0.0 as
+        # the floor lets the MM generate invalid limit orders when volatility
+        # widens after the simulated price drifts toward penny-stock territory.
+        bid = max(min_price, reservation - half_spread)
+        ask = max(bid + self.min_spread, reservation + half_spread, min_price)
         inv_ratio = min(1.0, abs(self.inventory) / max(1, self.max_inventory))
         size_factor = max(0.2, 1.0 - inv_ratio)
         buy_size = max(1, round(self.base_order_size * (size_factor if self.inventory > 0 else 1.0)))
@@ -141,9 +151,30 @@ class MarketMaker:
         drawdown = (self.peak_equity - equity) / self.capital_base
         if drawdown > self.drawdown_limit:
             self._cancel_existing_quotes()
-            logger.warning("MM %s kill-switch active: drawdown=%.2f%% of capital_base=%.2f", self.symbol, drawdown * 100.0, self.capital_base)
+            self._ks_cooldown += 1
+            if self._ks_cooldown >= self.ks_cooldown_ticks:
+                # Cooldown elapsed: reset peak_equity to current mark-to-market
+                # so the drawdown ratio can be re-evaluated from a stable base.
+                # The Avellaneda-Stoikov inventory skew in _compute_quotes()
+                # will naturally widen the spread and skew quotes to unwind any
+                # residual inventory — no manual intervention needed.
+                self.peak_equity = equity
+                self._ks_cooldown = 0
+                logger.info(
+                    "MM %s kill-switch cooldown elapsed; resetting peak equity "
+                    "to %.4f and resuming quoting",
+                    self.symbol, equity,
+                )
+            else:
+                logger.warning(
+                    "MM %s kill-switch active: drawdown=%.2f%% of capital_base=%.2f "
+                    "[cooldown %d/%d ticks]",
+                    self.symbol, drawdown * 100.0, self.capital_base,
+                    self._ks_cooldown, self.ks_cooldown_ticks,
+                )
             return
 
+        self._ks_cooldown = 0  # operating normally — clear any partial counter
         self._cancel_existing_quotes()
         bid, ask, buy_size, sell_size = self._compute_quotes(mid)
         for i in range(self.num_levels):
@@ -151,8 +182,9 @@ class MarketMaker:
             level_size_bid = max(1, round(buy_size * decay))
             level_size_ask = max(1, round(sell_size * decay))
             step = (self.level_spacing_bps / 10000.0) * i
-            bid_i = max(0.0, bid - mid * step)
-            ask_i = max(bid_i + self.min_spread, ask + mid * step)
+            min_price = self.matching_engine.instruments.tick_size(self.symbol)
+            bid_i = max(min_price, bid - mid * step)
+            ask_i = max(bid_i + self.min_spread, ask + mid * step, min_price)
             self.current_bid_ids.append(self._post_quote("buy", bid_i, level_size_bid))
             self.current_ask_ids.append(self._post_quote("sell", ask_i, level_size_ask))
         logger.info("MM %s quotes bid=%.4f ask=%.4f levels=%d inv=%d", self.symbol, bid, ask, self.num_levels, self.inventory)

@@ -72,14 +72,28 @@ def test_cli_replay_mode_end_to_end(tmp_path, monkeypatch):
     assert os.path.exists(os.path.join(log_dir, "equity_curve.csv"))
 
 
-def test_cli_missing_market_data_provider_exits_cleanly_not_a_traceback():
+def test_cli_missing_market_data_provider_exits_cleanly_not_a_traceback(monkeypatch):
+    # Force the actionable "no market data" failure path. CI installs
+    # yahooquery/yfinance, so without this monkeypatch the backtest may
+    # succeed (or fail for unrelated network reasons) and never raise SystemExit.
+    def _no_provider(*_a, **_kw):
+        raise RuntimeError(
+            "Could not fetch market data for 'AAPL': neither yahooquery nor yfinance is installed. "
+            "Run `pip install -r requirements.txt`."
+        )
+
+    monkeypatch.setattr(cli_main, "load_historical_data", _no_provider)
     with pytest.raises(SystemExit) as exc_info:
         cli_main.main(["--mode", "backtest", "--symbol", "AAPL", "--start-date", "2023-01-01", "--end-date", "2023-01-05"])
     assert exc_info.value.code == 1
 
 
-def test_cli_debug_flag_reraises_full_exception():
-    with pytest.raises(RuntimeError):
+def test_cli_debug_flag_reraises_full_exception(monkeypatch):
+    def _boom(*_a, **_kw):
+        raise RuntimeError("simulated market-data failure")
+
+    monkeypatch.setattr(cli_main, "load_historical_data", _boom)
+    with pytest.raises(RuntimeError, match="simulated market-data failure"):
         cli_main.main(["--mode", "backtest", "--symbol", "AAPL", "--debug"])
 
 

@@ -35,7 +35,11 @@ class MomentumTrader(AlgorithmicTrader):
         if self.quantity is not None:
             return int(self.quantity)
         if self.portfolio is not None:
-            equity = self.portfolio.equity({self.symbol: price})
+            # Mark all known positions when possible; single-symbol marks leave
+            # other-symbol shorts as phantom cash and inflate size.
+            prices = dict(getattr(self, "mark_prices", None) or {})
+            prices[self.symbol] = price
+            equity = self.portfolio.equity(prices)
             return fixed_fraction_size(equity, price, self.risk_fraction)
         return 100
 

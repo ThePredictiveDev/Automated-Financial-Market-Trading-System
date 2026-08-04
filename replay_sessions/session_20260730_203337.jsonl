@@ -1,0 +1,156 @@
+{"seq": 0, "ts": 1785423817.507569, "type": "SESSION_START", "data": {"symbols": ["AAPL", "NVDA", "TSLA", "MSFT", "AMZN"], "base_prices": {"AAPL": 185.5, "NVDA": 125.2, "TSLA": 245.8, "MSFT": 440.0, "AMZN": 180.0}, "active_symbol": "AAPL", "strategy_states": {"market_maker": true, "momentum": true, "ema": false, "swing": false, "twap": false}, "initial_portfolio": {"cash": 1000000.0, "realized_pnl": 0.0, "positions": {}}}}
+{"seq": 1, "ts": 1785423817.7141044, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.67}}
+{"seq": 2, "ts": 1785423817.715106, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.52}}
+{"seq": 3, "ts": 1785423817.7164752, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 4, "ts": 1785423817.717479, "type": "TRADE", "data": {"id": "3c5f33504a3843859e0632d6e45d6651", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423817.717479}}
+{"seq": 5, "ts": 1785423817.717479, "type": "TRADE", "data": {"id": "de472d87f67c4cc5b21e4b332146c1bc", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423817.717479}}
+{"seq": 6, "ts": 1785423817.7184792, "type": "TRADE", "data": {"id": "0f24b7ba4b954242acbec9ce141b28f3", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423817.7184792}}
+{"seq": 7, "ts": 1785423817.7184792, "type": "TICK", "data": {"symbol": "MSFT", "price": 434.33}}
+{"seq": 8, "ts": 1785423817.7194824, "type": "TRADE", "data": {"id": "39ec8f489400410a9d02686b43646364", "symbol": "MSFT", "price": 433.66, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423817.7194824}}
+{"seq": 9, "ts": 1785423817.7194824, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.4}}
+{"seq": 10, "ts": 1785423818.1363719, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.71}}
+{"seq": 11, "ts": 1785423818.1373727, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.64}}
+{"seq": 12, "ts": 1785423818.1373727, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 13, "ts": 1785423818.1373727, "type": "TRADE", "data": {"id": "06b8a30e08a04aedb17173e12b80d47a", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.1373727}}
+{"seq": 14, "ts": 1785423818.1383727, "type": "TRADE", "data": {"id": "6fd59cfd8eca4ddd9f79248a05b5421f", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.1383727}}
+{"seq": 15, "ts": 1785423818.1383727, "type": "TRADE", "data": {"id": "e6550a8be66f4400bb238cbca805f482", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.1383727}}
+{"seq": 16, "ts": 1785423818.1383727, "type": "TICK", "data": {"symbol": "MSFT", "price": 433.59}}
+{"seq": 17, "ts": 1785423818.1393743, "type": "TRADE", "data": {"id": "edb573a340df477dbaaffc999f3307a2", "symbol": "MSFT", "price": 432.92, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.1393743}}
+{"seq": 18, "ts": 1785423818.1393743, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.39}}
+{"seq": 19, "ts": 1785423818.526506, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.84}}
+{"seq": 20, "ts": 1785423818.526506, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.72}}
+{"seq": 21, "ts": 1785423818.5275054, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 22, "ts": 1785423818.5275054, "type": "TRADE", "data": {"id": "da0c06636f9d4bfe97351f15b08ae4fe", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.5275054}}
+{"seq": 23, "ts": 1785423818.5275054, "type": "TRADE", "data": {"id": "36d65601f99f492eb5d9201f48fa1eef", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.5275054}}
+{"seq": 24, "ts": 1785423818.5285096, "type": "TRADE", "data": {"id": "8744b4fc24b84f768ce7337d95223ffc", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.5285096}}
+{"seq": 25, "ts": 1785423818.5285096, "type": "TICK", "data": {"symbol": "MSFT", "price": 432.98}}
+{"seq": 26, "ts": 1785423818.5295062, "type": "TRADE", "data": {"id": "3bbafc87d8d64a2ab4e74aa8575cecc0", "symbol": "MSFT", "price": 432.31, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.5295062}}
+{"seq": 27, "ts": 1785423818.5295062, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.39}}
+{"seq": 28, "ts": 1785423818.9322562, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.92}}
+{"seq": 29, "ts": 1785423818.933263, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.68}}
+{"seq": 30, "ts": 1785423818.933263, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 31, "ts": 1785423818.933263, "type": "TRADE", "data": {"id": "ea23225f96874683bffe3e731f223de4", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.933263}}
+{"seq": 32, "ts": 1785423818.934255, "type": "TRADE", "data": {"id": "b0f66e6f8df5424f8c590631e8ef54ff", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.934255}}
+{"seq": 33, "ts": 1785423818.934255, "type": "TRADE", "data": {"id": "c0662637eb7c4c589641659c8bff79fc", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.934255}}
+{"seq": 34, "ts": 1785423818.934255, "type": "TICK", "data": {"symbol": "MSFT", "price": 432.37}}
+{"seq": 35, "ts": 1785423818.9352572, "type": "TRADE", "data": {"id": "b6c46d837b9242d0a61655e6951409dc", "symbol": "MSFT", "price": 431.7, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423818.9352572}}
+{"seq": 36, "ts": 1785423818.9352572, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.37}}
+{"seq": 37, "ts": 1785423819.3393366, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.9}}
+{"seq": 38, "ts": 1785423819.3403378, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.63}}
+{"seq": 39, "ts": 1785423819.3403378, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 40, "ts": 1785423819.3403378, "type": "TRADE", "data": {"id": "ae3fd94e19744f85aaae8397301e4b79", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423819.3403378}}
+{"seq": 41, "ts": 1785423819.3413813, "type": "TRADE", "data": {"id": "821eed9c7f4745fabf676a7e9bcbca32", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423819.3413813}}
+{"seq": 42, "ts": 1785423819.3413813, "type": "TRADE", "data": {"id": "13d927fe3d3142419f5394a2c108b46f", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423819.3413813}}
+{"seq": 43, "ts": 1785423819.342377, "type": "TICK", "data": {"symbol": "MSFT", "price": 431.86}}
+{"seq": 44, "ts": 1785423819.342377, "type": "TRADE", "data": {"id": "e965bb5689f548ef97608fedb7866b90", "symbol": "MSFT", "price": 431.17, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423819.342377}}
+{"seq": 45, "ts": 1785423819.3433795, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.38}}
+{"seq": 46, "ts": 1785423819.7477164, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.93}}
+{"seq": 47, "ts": 1785423819.7487168, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.74}}
+{"seq": 48, "ts": 1785423819.7487168, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 49, "ts": 1785423819.7487168, "type": "TRADE", "data": {"id": "1b10f83346a343afb426be7b3c4c1982", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423819.7487168}}
+{"seq": 50, "ts": 1785423819.7499297, "type": "TRADE", "data": {"id": "60b54e89e5d449ebb5ee59dfe96f9fb0", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423819.7499297}}
+{"seq": 51, "ts": 1785423819.7504325, "type": "TRADE", "data": {"id": "45e9b0da761c49629431497cdedd016a", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423819.7504325}}
+{"seq": 52, "ts": 1785423819.7504325, "type": "TICK", "data": {"symbol": "MSFT", "price": 431.23}}
+{"seq": 53, "ts": 1785423819.7514358, "type": "TRADE", "data": {"id": "a248c83c65ef4ac09d405e5b5ff021c8", "symbol": "MSFT", "price": 430.56, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423819.7514358}}
+{"seq": 54, "ts": 1785423819.7514358, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.24}}
+{"seq": 55, "ts": 1785423820.1686988, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.88}}
+{"seq": 56, "ts": 1785423820.1696985, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.71}}
+{"seq": 57, "ts": 1785423820.1696985, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 58, "ts": 1785423820.1706986, "type": "TRADE", "data": {"id": "cabe28238cf54dc99268ec103c5ea727", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423820.1706986}}
+{"seq": 59, "ts": 1785423820.1706986, "type": "TRADE", "data": {"id": "83c9598d18ea4a18a3b637faa0fd228a", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423820.1706986}}
+{"seq": 60, "ts": 1785423820.1717288, "type": "TRADE", "data": {"id": "7eef6046e1e14deeb7e3fbaf56fdc0bb", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423820.1717288}}
+{"seq": 61, "ts": 1785423820.1717288, "type": "TICK", "data": {"symbol": "MSFT", "price": 430.47}}
+{"seq": 62, "ts": 1785423820.1727285, "type": "TRADE", "data": {"id": "0dd95f709974408d98e3ae9d5fe04103", "symbol": "MSFT", "price": 429.8, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423820.1727285}}
+{"seq": 63, "ts": 1785423820.1727285, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.35}}
+{"seq": 64, "ts": 1785423820.594795, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.73}}
+{"seq": 65, "ts": 1785423820.595796, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.92}}
+{"seq": 66, "ts": 1785423820.595796, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 67, "ts": 1785423820.595796, "type": "TRADE", "data": {"id": "f4912321140d46e3b32c46ecb762fc30", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423820.595796}}
+{"seq": 68, "ts": 1785423820.5967953, "type": "TRADE", "data": {"id": "a6ee7f7c6c0146799eda420a734309a9", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423820.5967953}}
+{"seq": 69, "ts": 1785423820.5967953, "type": "TRADE", "data": {"id": "19e68278e170485a831e96514baa709e", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423820.5967953}}
+{"seq": 70, "ts": 1785423820.5967953, "type": "TICK", "data": {"symbol": "MSFT", "price": 429.81}}
+{"seq": 71, "ts": 1785423820.597795, "type": "TRADE", "data": {"id": "928df6498f024cfb8a6cd4e8bfae817a", "symbol": "MSFT", "price": 429.14, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423820.597795}}
+{"seq": 72, "ts": 1785423820.597795, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.29}}
+{"seq": 73, "ts": 1785423821.0196962, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.81}}
+{"seq": 74, "ts": 1785423821.0206964, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.95}}
+{"seq": 75, "ts": 1785423821.0206964, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 76, "ts": 1785423821.0206964, "type": "TRADE", "data": {"id": "ef1cd0b22dab4a25a5670b792350baef", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.0206964}}
+{"seq": 77, "ts": 1785423821.0219169, "type": "TRADE", "data": {"id": "fd3d766af25e489883ea717fd6d67568", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.0219169}}
+{"seq": 78, "ts": 1785423821.0219169, "type": "TRADE", "data": {"id": "6b56bf4b73f544f18d9fb1ec078b40fa", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.0219169}}
+{"seq": 79, "ts": 1785423821.0229158, "type": "TICK", "data": {"symbol": "MSFT", "price": 429.16}}
+{"seq": 80, "ts": 1785423821.0229158, "type": "TRADE", "data": {"id": "bd2924ef91284917aad576964fc05a07", "symbol": "MSFT", "price": 428.49, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.0229158}}
+{"seq": 81, "ts": 1785423821.023917, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.26}}
+{"seq": 82, "ts": 1785423821.429639, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.78}}
+{"seq": 83, "ts": 1785423821.4306395, "type": "TICK", "data": {"symbol": "NVDA", "price": 273.11}}
+{"seq": 84, "ts": 1785423821.4306395, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 85, "ts": 1785423821.4306395, "type": "TRADE", "data": {"id": "ad46eea8583a4f05b099021435785c62", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.4306395}}
+{"seq": 86, "ts": 1785423821.4316757, "type": "TRADE", "data": {"id": "9fa853812045470c9fd3a25c26dab1bd", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.4316757}}
+{"seq": 87, "ts": 1785423821.4316757, "type": "TRADE", "data": {"id": "1d353b95204c4dd6be13cee4f0f81300", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.4316757}}
+{"seq": 88, "ts": 1785423821.432676, "type": "TICK", "data": {"symbol": "MSFT", "price": 428.36}}
+{"seq": 89, "ts": 1785423821.432676, "type": "TRADE", "data": {"id": "587bdb7f01654531852a5cb12d809382", "symbol": "MSFT", "price": 427.69, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.432676}}
+{"seq": 90, "ts": 1785423821.4336743, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.27}}
+{"seq": 91, "ts": 1785423821.4336743, "type": "TRADE", "data": {"id": "5d1ff406cf3e4cca851fc5b03216a1ee", "symbol": "AMZN", "price": 18.92, "quantity": 85, "side": "buy", "buyer_id": "MOMENTUM", "seller_id": "MARKET_MAKER", "timestamp": 1785423821.4336743}}
+{"seq": 92, "ts": 1785423821.822451, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.77}}
+{"seq": 93, "ts": 1785423821.8234518, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.91}}
+{"seq": 94, "ts": 1785423821.8234518, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 95, "ts": 1785423821.8234518, "type": "TRADE", "data": {"id": "0951022ee55540b98cfc6e90ae6ca7b0", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.8234518}}
+{"seq": 96, "ts": 1785423821.8244514, "type": "TRADE", "data": {"id": "f21f707061c74be78325013b1fa594a8", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.8244514}}
+{"seq": 97, "ts": 1785423821.8244514, "type": "TRADE", "data": {"id": "14b79747ce3249d9aae4cfe2495a40cc", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.8244514}}
+{"seq": 98, "ts": 1785423821.8244514, "type": "TICK", "data": {"symbol": "MSFT", "price": 427.61}}
+{"seq": 99, "ts": 1785423821.825451, "type": "TRADE", "data": {"id": "951a18cdb01c434f8536f91593cc9a40", "symbol": "MSFT", "price": 426.94, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423821.825451}}
+{"seq": 100, "ts": 1785423821.825451, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.94}}
+{"seq": 101, "ts": 1785423822.227454, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.8}}
+{"seq": 102, "ts": 1785423822.228454, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.85}}
+{"seq": 103, "ts": 1785423822.228454, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 104, "ts": 1785423822.2294524, "type": "TRADE", "data": {"id": "9aba7eee27624639b67cff2ec9c15930", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423822.2294524}}
+{"seq": 105, "ts": 1785423822.2294524, "type": "TRADE", "data": {"id": "000f3c3aee824134bbd380fdf3cb8d02", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423822.2294524}}
+{"seq": 106, "ts": 1785423822.2304564, "type": "TRADE", "data": {"id": "4666b0b92dd64889a1e7957e6b65faf1", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423822.2304564}}
+{"seq": 107, "ts": 1785423822.2304564, "type": "TICK", "data": {"symbol": "MSFT", "price": 426.98}}
+{"seq": 108, "ts": 1785423822.2315197, "type": "TRADE", "data": {"id": "ffe7cdb3043247a6865427e8dcb4cca6", "symbol": "MSFT", "price": 426.31, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423822.2315197}}
+{"seq": 109, "ts": 1785423822.2315197, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.87}}
+{"seq": 110, "ts": 1785423822.6345417, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.82}}
+{"seq": 111, "ts": 1785423822.6355445, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.89}}
+{"seq": 112, "ts": 1785423822.6355445, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 113, "ts": 1785423822.6355445, "type": "TRADE", "data": {"id": "d17e2009cf9d4e15ac83b661b15ed450", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423822.6355445}}
+{"seq": 114, "ts": 1785423822.6365428, "type": "TRADE", "data": {"id": "9eb11e92d68f43ac976d98b306fe2fb0", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423822.6365428}}
+{"seq": 115, "ts": 1785423822.6365428, "type": "TRADE", "data": {"id": "feff188b96484ee88084a50770a09aa5", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423822.6365428}}
+{"seq": 116, "ts": 1785423822.6365428, "type": "TICK", "data": {"symbol": "MSFT", "price": 426.29}}
+{"seq": 117, "ts": 1785423822.6375422, "type": "TRADE", "data": {"id": "954f6945c808436fb75e1f186c005bf7", "symbol": "MSFT", "price": 425.62, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423822.6375422}}
+{"seq": 118, "ts": 1785423822.6375422, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.71}}
+{"seq": 119, "ts": 1785423823.027637, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.58}}
+{"seq": 120, "ts": 1785423823.0286381, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.85}}
+{"seq": 121, "ts": 1785423823.0286381, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 122, "ts": 1785423823.0296383, "type": "TRADE", "data": {"id": "dcb8f04646f9460b999d82f12a485ca6", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.0296383}}
+{"seq": 123, "ts": 1785423823.0296383, "type": "TRADE", "data": {"id": "1d5d939fa6f3442b90ac013ed4510ad5", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.0296383}}
+{"seq": 124, "ts": 1785423823.0296383, "type": "TRADE", "data": {"id": "572a4712e0b748da94bfdf526ecf5486", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.0296383}}
+{"seq": 125, "ts": 1785423823.0306387, "type": "TICK", "data": {"symbol": "MSFT", "price": 425.59}}
+{"seq": 126, "ts": 1785423823.0306387, "type": "TRADE", "data": {"id": "338931bcc43c46669b3048f9bd1c6265", "symbol": "MSFT", "price": 424.92, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.0306387}}
+{"seq": 127, "ts": 1785423823.0320158, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.77}}
+{"seq": 128, "ts": 1785423823.4428644, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.72}}
+{"seq": 129, "ts": 1785423823.4438632, "type": "TICK", "data": {"symbol": "NVDA", "price": 272.94}}
+{"seq": 130, "ts": 1785423823.4438632, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 131, "ts": 1785423823.4438632, "type": "TRADE", "data": {"id": "7da8e18100af414fbb992ea193289563", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.4438632}}
+{"seq": 132, "ts": 1785423823.4448633, "type": "TRADE", "data": {"id": "0ea6fc45894f475da8838821f1fd628c", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.4448633}}
+{"seq": 133, "ts": 1785423823.4448633, "type": "TRADE", "data": {"id": "ae06e51ac1114f9eb9cde6b85f332618", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.4448633}}
+{"seq": 134, "ts": 1785423823.4458644, "type": "TICK", "data": {"symbol": "MSFT", "price": 424.93}}
+{"seq": 135, "ts": 1785423823.4458644, "type": "TRADE", "data": {"id": "58b16866dc394be98acd8980779f9487", "symbol": "MSFT", "price": 424.26, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.4458644}}
+{"seq": 136, "ts": 1785423823.4468637, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.79}}
+{"seq": 137, "ts": 1785423823.850233, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.8}}
+{"seq": 138, "ts": 1785423823.8507757, "type": "TICK", "data": {"symbol": "NVDA", "price": 273.04}}
+{"seq": 139, "ts": 1785423823.8507757, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 140, "ts": 1785423823.8517802, "type": "TRADE", "data": {"id": "202848ab0d974ed59f70923982fa81a9", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.8517802}}
+{"seq": 141, "ts": 1785423823.8517802, "type": "TRADE", "data": {"id": "302a01f176984d29aca8e48b90e3fe9a", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.8517802}}
+{"seq": 142, "ts": 1785423823.8517802, "type": "TRADE", "data": {"id": "cb7d7f158d24499c9ae6124560759e93", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.8517802}}
+{"seq": 143, "ts": 1785423823.852784, "type": "TICK", "data": {"symbol": "MSFT", "price": 424.34}}
+{"seq": 144, "ts": 1785423823.852784, "type": "TRADE", "data": {"id": "851f8009eb004b01be2f4de03c1a1247", "symbol": "MSFT", "price": 423.67, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423823.852784}}
+{"seq": 145, "ts": 1785423823.8537822, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.71}}
+{"seq": 146, "ts": 1785423824.2691891, "type": "TICK", "data": {"symbol": "AAPL", "price": 33.89}}
+{"seq": 147, "ts": 1785423824.2702713, "type": "TICK", "data": {"symbol": "NVDA", "price": 273.25}}
+{"seq": 148, "ts": 1785423824.2702713, "type": "TICK", "data": {"symbol": "TSLA", "price": 1.0}}
+{"seq": 149, "ts": 1785423824.2707827, "type": "TRADE", "data": {"id": "74120dc2b9df4fd59cfac3f0e1488f1b", "symbol": "TSLA", "price": 0.01, "quantity": 20, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423824.2707827}}
+{"seq": 150, "ts": 1785423824.2707827, "type": "TRADE", "data": {"id": "b7d520eafab146018a78eb362cd012e1", "symbol": "TSLA", "price": 0.01, "quantity": 14, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423824.2707827}}
+{"seq": 151, "ts": 1785423824.2707827, "type": "TRADE", "data": {"id": "1377ad256b9d4c619d4fb0bc9e6bf7a4", "symbol": "TSLA", "price": 0.01, "quantity": 10, "side": "buy", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423824.2707827}}
+{"seq": 152, "ts": 1785423824.2717872, "type": "TICK", "data": {"symbol": "MSFT", "price": 423.79}}
+{"seq": 153, "ts": 1785423824.2717872, "type": "TRADE", "data": {"id": "4c14221bbb024607a31bf4d04f06cc55", "symbol": "MSFT", "price": 423.12, "quantity": 11, "side": "sell", "buyer_id": "MARKET_MAKER", "seller_id": "MOMENTUM", "timestamp": 1785423824.2717872}}
+{"seq": 154, "ts": 1785423824.2727866, "type": "TICK", "data": {"symbol": "AMZN", "price": 18.63}}
+{"seq": 155, "ts": 1785423824.404827, "type": "SESSION_END", "data": {"duration": 6.897258043289185, "total_events": 155}}
