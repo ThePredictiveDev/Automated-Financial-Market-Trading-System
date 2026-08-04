@@ -12,3 +12,8 @@ pyrate-limiter>=3.1
 
 # FIX protocol adapter (connectivity.fix_app)
 simplefix>=1.0.5
+
+# Web API (web_server.py / TradeFlow console backend)
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.0
