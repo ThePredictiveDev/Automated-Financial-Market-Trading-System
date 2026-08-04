@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Square, Info, TrendingUp, Activity, BarChart2, Layers, Brain, Clock, Code2, BookOpen } from 'lucide-react';
+import { Play, Square, Info, TrendingUp, Activity, BarChart2, Layers, Clock, BookOpen } from 'lucide-react';
 import type { StrategyStates } from '../types';
 
 interface StrategyPanelProps {

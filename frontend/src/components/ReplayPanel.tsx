@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Film, Circle, Square, Play, Pause, SkipBack, SkipForward, Rewind, FastForward, Clock, HardDrive } from 'lucide-react';
+import { Film, Circle, Square, Play, Pause, SkipBack, Rewind, FastForward, Clock, HardDrive } from 'lucide-react';
 
 interface RecordingStatus {
   recording: boolean;
