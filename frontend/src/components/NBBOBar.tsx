@@ -28,7 +28,7 @@ export function NBBOBar({ bestBid, bestAsk, spread, symbol, isConnected }: Props
       style={{
         background: 'var(--bg-secondary)',
         borderBottom: '1px solid var(--border-color)',
-        padding: '4px 16px',
+        padding: 'var(--nbbo-pad-y, 4px) var(--pad-x, 16px)',
         display: 'flex',
         alignItems: 'center',
         gap: '20px',

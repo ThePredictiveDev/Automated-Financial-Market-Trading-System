@@ -194,7 +194,7 @@ export const SystemPipeline: React.FC<SystemPipelineProps> = ({ lifecycle, isCon
     <div
       className="terminal-panel pipeline-banner"
       style={{
-        padding: '8px var(--pad-x, 14px)',
+        padding: 'var(--pipeline-pad-y, 8px) var(--pad-x, 14px)',
         background: 'linear-gradient(180deg, #0A0E1A 0%, #05080E 100%)',
         borderBottom: '2px solid var(--border-color)',
         borderRadius: 0,
@@ -204,7 +204,7 @@ export const SystemPipeline: React.FC<SystemPipelineProps> = ({ lifecycle, isCon
       }}
     >
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--pipeline-inner-gap, 6px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Radio size={12} color="var(--accent-cyan)" />
           <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.8px', color: 'var(--text-main)' }}>
@@ -283,7 +283,7 @@ export const SystemPipeline: React.FC<SystemPipelineProps> = ({ lifecycle, isCon
                   ref={el => { nodeRefs.current[idx] = el; }}
                   className={extraClass}
                   style={{
-                    width: '24px', height: '24px', borderRadius: '50%',
+                    width: 'var(--pipeline-node-size, 24px)', height: 'var(--pipeline-node-size, 24px)', borderRadius: '50%',
                     background: bgCol,
                     border: `1.5px solid ${borderCol}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -320,7 +320,7 @@ export const SystemPipeline: React.FC<SystemPipelineProps> = ({ lifecycle, isCon
                 </span>
 
                 {/* Subtext */}
-                <span className="mono" style={{
+                <span className="mono pipeline-node-sub" style={{
                   fontSize: '7px', marginTop: '1px', display: 'block',
                   color: isMD && isConnected ? 'var(--buy-green)'
                     : subtext.startsWith('+') ? 'var(--accent-cyan)'
