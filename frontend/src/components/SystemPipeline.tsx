@@ -192,13 +192,15 @@ export const SystemPipeline: React.FC<SystemPipelineProps> = ({ lifecycle, isCon
 
   return (
     <div
-      className="terminal-panel"
+      className="terminal-panel pipeline-banner"
       style={{
-        padding: '8px 14px',
+        padding: '8px var(--pad-x, 14px)',
         background: 'linear-gradient(180deg, #0A0E1A 0%, #05080E 100%)',
         borderBottom: '2px solid var(--border-color)',
         borderRadius: 0,
         flexShrink: 0,
+        overflowX: 'auto',
+        overflowY: 'hidden',
       }}
     >
       {/* Header */}

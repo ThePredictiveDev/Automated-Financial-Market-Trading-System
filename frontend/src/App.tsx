@@ -488,45 +488,33 @@ export function App() {
   const strategyStates = data?.strategy_states;
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      <Header
-        data={data}
-        activeSymbol={activeSymbol}
-        onSymbolChange={handleSymbolChange}
-        isConnected={isConnected}
-        replayMode={replayMode}
-      />
+    <div className="app-shell">
+      {/* Sticky chrome: brand header + pipeline + NBBO */}
+      <div className="app-chrome">
+        <Header
+          data={data}
+          activeSymbol={activeSymbol}
+          onSymbolChange={handleSymbolChange}
+          isConnected={isConnected}
+          replayMode={replayMode}
+        />
+        <SystemPipeline
+          lifecycle={lifecycle}
+          isConnected={isConnected}
+          tickRate={tickRate}
+        />
+        <NBBOBar
+          bestBid={bestBid}
+          bestAsk={bestAsk}
+          spread={spread}
+          symbol={activeSymbol}
+          isConnected={isConnected}
+        />
+      </div>
 
-      {/* Unified execution pipeline banner right below header */}
-      <SystemPipeline 
-        lifecycle={lifecycle} 
-        isConnected={isConnected}
-        tickRate={tickRate}
-      />
-
-      {/* Inside market quote bar — always visible, no user interaction needed */}
-      <NBBOBar
-        bestBid={bestBid}
-        bestAsk={bestAsk}
-        spread={spread}
-        symbol={activeSymbol}
-        isConnected={isConnected}
-      />
-
-      <main
-        style={{
-          flex: 1,
-          padding: '12px 16px',
-          display: 'grid',
-          gridTemplateColumns: '260px 1fr 280px',
-          gridTemplateRows: '1fr',
-          gap: '12px',
-          minHeight: 0,
-          overflow: 'hidden',
-        }}
-      >
-        {/* Left Column: Order Book */}
-        <div style={{ height: '100%', minHeight: 0 }}>
+      {/* Scrollable trading workspace */}
+      <main className="workspace">
+        <div className="workspace-col workspace-col--book">
           <OrderBook
             bids={bids}
             asks={asks}
@@ -536,9 +524,8 @@ export function App() {
           />
         </div>
 
-        {/* Middle Column: Candlestick price chart + Audit execution feed */}
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '10px', minHeight: 0 }}>
-          <div style={{ height: '170px', flexShrink: 0 }}>
+        <div className="workspace-col workspace-col--center">
+          <div className="workspace-panel workspace-panel--chart">
             <CandlestickChart
               history={history}
               symbol={activeSymbol}
@@ -547,37 +534,28 @@ export function App() {
               bestAsk={bestAsk}
             />
           </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div className="workspace-panel workspace-panel--feed">
             <ExecutionTicker trades={recentTrades} />
           </div>
         </div>
 
-        {/* Right Column: Order Entry + Order Journey tracker */}
-        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '10px', minHeight: 0 }}>
-          <div style={{ height: '270px', flexShrink: 0 }}>
+        <div className="workspace-col workspace-col--right">
+          <div className="workspace-panel workspace-panel--ticket">
             <OrderTicket
               symbol={activeSymbol}
               lastPrice={lastPrice}
               onOrderSubmitted={handleOrderSubmit}
             />
           </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div className="workspace-panel workspace-panel--journey">
             <OrderJourney lifecycle={lifecycle} />
           </div>
         </div>
       </main>
 
-      {/* Bottom Tab Bar (Secondary Panels) */}
-      <div
-        style={{
-          background: 'var(--bg-dark)',
-          display: 'flex',
-          flexDirection: 'column',
-          flexShrink: 0,
-          borderTop: '1px solid var(--border-color)',
-        }}
-      >
-        <div className="tab-bar">
+      {/* Fixed bottom navigation + secondary panels */}
+      <div className="bottom-dock">
+        <nav className="tab-bar" aria-label="Secondary panels">
           <button
             className={`tab-btn ${activeTab === 'portfolio' ? 'active' : ''}`}
             onClick={() => setActiveTab('portfolio')}
@@ -614,20 +592,9 @@ export function App() {
           >
             Replay Engine
           </button>
-        </div>
+        </nav>
 
-        {/* Fixed panel height — minHeight:0 stops flex from growing with dense tab content */}
-        <div
-          className="tab-content"
-          style={{
-            height: '250px',
-            maxHeight: '250px',
-            minHeight: 0,
-            padding: '8px 16px',
-            overflow: 'hidden',
-            boxSizing: 'border-box',
-          }}
-        >
+        <div className="tab-content">
           {activeTab === 'portfolio' && (
             <PortfolioSummary
               portfolio={portfolio}
@@ -648,7 +615,7 @@ export function App() {
             <PerformanceAnalytics data={data} equityHistory={equityHistory} />
           )}
           {activeTab === 'system' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+            <div className="dock-split">
               <SystemStatus
                 isConnected={isConnected}
                 tickRate={tickRate}
@@ -672,12 +639,12 @@ export function App() {
               userOrderCount={userOrderCount}
             />
           )}
-            {activeTab === 'replay' && (
-              <ReplayPanel 
-                replayMode={replayMode}
-                onReplayModeChange={handleReplayModeChange}
-              />
-            )}
+          {activeTab === 'replay' && (
+            <ReplayPanel
+              replayMode={replayMode}
+              onReplayModeChange={handleReplayModeChange}
+            />
+          )}
         </div>
       </div>
 
