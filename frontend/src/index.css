@@ -40,8 +40,14 @@
   --header-h: 52px;
   --tab-h: 30px;
   --dock-h: clamp(160px, 26vh, 250px);
-  --chart-h: clamp(120px, 20vh, 170px);
-  --ticket-h: clamp(200px, 30vh, 270px);
+  /* feed-h is shared by the feed panel AND the journey panel so that
+     chart height always equals ticket height within their columns */
+  --feed-h: 140px;
+  /* Pipeline chrome density controls */
+  --pipeline-pad-y: 8px;
+  --pipeline-inner-gap: 6px;
+  --pipeline-node-size: 24px;
+  --nbbo-pad-y: 4px;
   --ui-scale: 1;
 }
 
@@ -119,8 +125,7 @@ body {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   display: grid;
   grid-template-columns: var(--col-left) minmax(0, 1fr) var(--col-right);
   grid-template-rows: minmax(280px, 1fr);
@@ -157,30 +162,39 @@ body {
 }
 
 .workspace-panel--chart {
-  flex: 0 1 var(--chart-h);
-  height: var(--chart-h);
-  max-height: var(--chart-h);
-}
-
-.workspace-panel--feed {
-  flex: 1 1 auto;
-  min-height: 120px;
-}
-
-.workspace-panel--ticket {
-  flex: 0 1 var(--ticket-h);
-  height: var(--ticket-h);
-  max-height: var(--ticket-h);
+  flex: 1 1 0;
+  min-height: 160px;
   overflow: hidden;
 }
 
-.workspace-panel--ticket .terminal-panel {
-  overflow: auto;
+.workspace-panel--feed {
+  flex: 0 0 var(--feed-h);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-panel--feed > .terminal-panel {
+  overflow-y: auto;
+}
+
+.workspace-panel--ticket {
+  flex: 1 1 0;
+  min-height: 160px;
+  overflow: hidden;
+}
+
+.workspace-panel--ticket > .terminal-panel {
+  overflow-y: auto;
 }
 
 .workspace-panel--journey {
-  flex: 1 1 auto;
-  min-height: 100px;
+  flex: 0 0 var(--feed-h);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-panel--journey > .terminal-panel {
+  overflow-y: auto;
 }
 
 .bottom-dock {
@@ -478,7 +492,8 @@ select.input-field {
 }
 
 /* ─── Responsive density breakpoints ─────────────────────────────────────────── */
-/* 1600×900 and similar */
+
+/* 1600×900 — first density tier */
 @media (max-width: 1600px) {
   :root {
     --col-left: 240px;
@@ -487,13 +502,16 @@ select.input-field {
     --pad-x: 12px;
     --pad-y: 10px;
     --dock-h: clamp(150px, 24vh, 230px);
-    --chart-h: clamp(110px, 18vh, 155px);
-    --ticket-h: clamp(190px, 28vh, 250px);
+    --feed-h: 125px;
+    --pipeline-pad-y: 6px;
+    --pipeline-inner-gap: 5px;
+    --pipeline-node-size: 22px;
+    --nbbo-pad-y: 3px;
     --ui-scale: 0.96;
   }
 }
 
-/* 1440×900 */
+/* 1440×900 / 1366×768 — pipeline subtext hidden to reclaim ~10px of chrome */
 @media (max-width: 1440px) {
   :root {
     --col-left: 220px;
@@ -503,8 +521,11 @@ select.input-field {
     --pad-y: 8px;
     --header-h: 48px;
     --dock-h: clamp(140px, 24vh, 210px);
-    --chart-h: clamp(100px, 17vh, 145px);
-    --ticket-h: clamp(180px, 28vh, 240px);
+    --feed-h: 112px;
+    --pipeline-pad-y: 5px;
+    --pipeline-inner-gap: 4px;
+    --pipeline-node-size: 20px;
+    --nbbo-pad-y: 3px;
     --ui-scale: 0.93;
   }
 
@@ -512,9 +533,14 @@ select.input-field {
     grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
     gap: 14px;
   }
+
+  /* Hide per-node timing subtext — saves ~10px of pipeline height */
+  .pipeline-node-sub {
+    display: none;
+  }
 }
 
-/* 1366×768 / 1536×864 / 1280×720 */
+/* 1536×864 / 1366×768 / 1280×720 */
 @media (max-width: 1280px) {
   :root {
     --col-left: 200px;
@@ -525,8 +551,11 @@ select.input-field {
     --header-h: 46px;
     --tab-h: 28px;
     --dock-h: clamp(130px, 26vh, 190px);
-    --chart-h: clamp(96px, 16vh, 130px);
-    --ticket-h: clamp(170px, 30vh, 220px);
+    --feed-h: 100px;
+    --pipeline-pad-y: 4px;
+    --pipeline-inner-gap: 3px;
+    --pipeline-node-size: 18px;
+    --nbbo-pad-y: 2px;
     --ui-scale: 0.9;
   }
 
@@ -554,24 +583,28 @@ select.input-field {
   }
 }
 
-/* Short laptop viewports — keep chrome + dock, let workspace scroll */
+/* Height breakpoint — 1366×768 and similar short laptops */
 @media (max-height: 800px) {
   :root {
     --dock-h: clamp(120px, 22vh, 180px);
-    --chart-h: clamp(90px, 15vh, 130px);
-    --ticket-h: clamp(160px, 28vh, 220px);
+    --feed-h: 100px;
   }
 
   .workspace {
-    grid-template-rows: minmax(220px, 1fr);
+    grid-template-rows: minmax(200px, 1fr);
   }
 }
 
+/* Height breakpoint — 1280×720 extreme compact */
 @media (max-height: 720px) {
   :root {
     --dock-h: clamp(110px, 20vh, 160px);
-    --chart-h: clamp(80px, 14vh, 120px);
-    --ticket-h: clamp(150px, 26vh, 200px);
+    --feed-h: 88px;
     --header-h: 44px;
+    --pipeline-pad-y: 3px;
+    --pipeline-inner-gap: 2px;
+    --pipeline-node-size: 16px;
+    --nbbo-pad-y: 2px;
   }
 }
+
