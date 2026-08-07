@@ -75,7 +75,7 @@ export const PerformanceAnalytics: React.FC<PerformanceAnalyticsProps> = ({ data
   const pnlColor = totalPnl >= 0 ? 'var(--buy-green)' : 'var(--sell-red)';
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '20px', height: '100%', padding: '4px 0' }}>
+    <div className="analytics-layout">
       {/* Equity Line chart */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         <h4 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>

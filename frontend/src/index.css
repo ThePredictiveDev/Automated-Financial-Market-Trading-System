@@ -30,6 +30,19 @@
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
   --terminal-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+
+  /* Layout density — scaled down at laptop breakpoints */
+  --col-left: 260px;
+  --col-right: 280px;
+  --gap: 12px;
+  --pad-x: 16px;
+  --pad-y: 12px;
+  --header-h: 52px;
+  --tab-h: 30px;
+  --dock-h: clamp(160px, 26vh, 250px);
+  --chart-h: clamp(120px, 20vh, 170px);
+  --ticket-h: clamp(200px, 30vh, 270px);
+  --ui-scale: 1;
 }
 
 @keyframes pulse {
@@ -47,11 +60,16 @@
   padding: 0;
 }
 
+html, body, #root {
+  height: 100%;
+  max-width: 100%;
+}
+
 body {
   background-color: var(--bg-dark);
   color: var(--text-main);
   font-family: var(--font-sans);
-  min-height: 100vh;
+  min-height: 100%;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
@@ -78,17 +96,140 @@ body {
   position: relative;
 }
 
+/* ─── App shell (Bloomberg-style responsive console) ─────────────────────────── */
+.app-shell {
+  height: 100dvh;
+  max-height: 100dvh;
+  width: 100%;
+  max-width: 100vw;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-dark);
+}
+
+.app-chrome {
+  flex-shrink: 0;
+  z-index: 40;
+  background: var(--bg-dark);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: var(--col-left) minmax(0, 1fr) var(--col-right);
+  grid-template-rows: minmax(280px, 1fr);
+  gap: var(--gap);
+  padding: var(--pad-y) var(--pad-x);
+  align-content: stretch;
+}
+
+.workspace-col {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.workspace-col--center,
+.workspace-col--right {
+  gap: calc(var(--gap) - 2px);
+}
+
+.workspace-col > .terminal-panel,
+.workspace-panel > .terminal-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+.workspace-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-panel--chart {
+  flex: 0 1 var(--chart-h);
+  height: var(--chart-h);
+  max-height: var(--chart-h);
+}
+
+.workspace-panel--feed {
+  flex: 1 1 auto;
+  min-height: 120px;
+}
+
+.workspace-panel--ticket {
+  flex: 0 1 var(--ticket-h);
+  height: var(--ticket-h);
+  max-height: var(--ticket-h);
+  overflow: hidden;
+}
+
+.workspace-panel--ticket .terminal-panel {
+  overflow: auto;
+}
+
+.workspace-panel--journey {
+  flex: 1 1 auto;
+  min-height: 100px;
+}
+
+.bottom-dock {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-dark);
+  border-top: 1px solid var(--border-color);
+  z-index: 30;
+  max-height: calc(var(--dock-h) + var(--tab-h));
+}
+
+.dock-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* ─── Header ─────────────────────────────────────────────────────────────────── */
 .app-header {
-  height: 52px;
+  height: var(--header-h);
+  min-height: var(--header-h);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  gap: 12px;
+  padding: 0 var(--pad-x);
   background: var(--bg-card);
   position: relative;
   z-index: 100;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-shrink: 0;
+}
+
+.app-header > * {
+  flex-shrink: 0;
+}
+
+.pipeline-banner {
+  min-width: 0;
+}
+
+.pipeline-banner .tooltip-trigger {
+  min-width: 44px;
 }
 
 /* ─── Depth bars ─────────────────────────────────────────────────────────────── */
@@ -214,10 +355,15 @@ body {
 /* ─── Tab Bar ────────────────────────────────────────────────────────────────── */
 .tab-bar {
   display: flex;
+  flex-wrap: nowrap;
   background: #080C14;
   border-bottom: 1px solid var(--border-color);
   padding: 0;
-  height: 30px;
+  height: var(--tab-h);
+  min-height: var(--tab-h);
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-shrink: 0;
 }
 .tab-btn {
   background: transparent;
@@ -227,16 +373,18 @@ body {
   color: var(--text-dim);
   cursor: pointer;
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: calc(11px * var(--ui-scale));
   font-weight: 600;
   letter-spacing: 0.5px;
-  padding: 0 16px;
+  padding: 0 calc(16px * var(--ui-scale));
   height: 100%;
   text-transform: uppercase;
   transition: all 0.15s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .tab-btn:hover {
   background: rgba(255, 255, 255, 0.01);
@@ -250,10 +398,14 @@ body {
 }
 .tab-content {
   background: var(--bg-card);
-  overflow: hidden;
-  /* Prevent flex min-height:auto from letting dense tab panels blow out the footer */
+  height: var(--dock-h);
+  max-height: var(--dock-h);
   min-height: 0;
-  flex-shrink: 0;
+  padding: calc(8px * var(--ui-scale)) var(--pad-x);
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+  flex: 0 0 auto;
 }
 
 /* ─── Buttons ────────────────────────────────────────────────────────────────── */
@@ -303,4 +455,123 @@ select.input-field {
   background-size: 10px;
   padding-right: 28px;
   appearance: none;
+}
+
+/* Secondary panel grids that must compress on laptop widths */
+.strategy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.analytics-layout {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  gap: 20px;
+  height: 100%;
+  min-height: 0;
+  padding: 4px 0;
+}
+
+/* ─── Responsive density breakpoints ─────────────────────────────────────────── */
+/* 1600×900 and similar */
+@media (max-width: 1600px) {
+  :root {
+    --col-left: 240px;
+    --col-right: 260px;
+    --gap: 10px;
+    --pad-x: 12px;
+    --pad-y: 10px;
+    --dock-h: clamp(150px, 24vh, 230px);
+    --chart-h: clamp(110px, 18vh, 155px);
+    --ticket-h: clamp(190px, 28vh, 250px);
+    --ui-scale: 0.96;
+  }
+}
+
+/* 1440×900 */
+@media (max-width: 1440px) {
+  :root {
+    --col-left: 220px;
+    --col-right: 240px;
+    --gap: 10px;
+    --pad-x: 10px;
+    --pad-y: 8px;
+    --header-h: 48px;
+    --dock-h: clamp(140px, 24vh, 210px);
+    --chart-h: clamp(100px, 17vh, 145px);
+    --ticket-h: clamp(180px, 28vh, 240px);
+    --ui-scale: 0.93;
+  }
+
+  .analytics-layout {
+    grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+    gap: 14px;
+  }
+}
+
+/* 1366×768 / 1536×864 / 1280×720 */
+@media (max-width: 1280px) {
+  :root {
+    --col-left: 200px;
+    --col-right: 220px;
+    --gap: 8px;
+    --pad-x: 8px;
+    --pad-y: 8px;
+    --header-h: 46px;
+    --tab-h: 28px;
+    --dock-h: clamp(130px, 26vh, 190px);
+    --chart-h: clamp(96px, 16vh, 130px);
+    --ticket-h: clamp(170px, 30vh, 220px);
+    --ui-scale: 0.9;
+  }
+
+  .workspace {
+    grid-template-rows: minmax(240px, 1fr);
+  }
+
+  .tab-btn {
+    padding: 0 10px;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+  }
+
+  .dock-split {
+    gap: 8px;
+  }
+
+  .strategy-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .analytics-layout {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+}
+
+/* Short laptop viewports — keep chrome + dock, let workspace scroll */
+@media (max-height: 800px) {
+  :root {
+    --dock-h: clamp(120px, 22vh, 180px);
+    --chart-h: clamp(90px, 15vh, 130px);
+    --ticket-h: clamp(160px, 28vh, 220px);
+  }
+
+  .workspace {
+    grid-template-rows: minmax(220px, 1fr);
+  }
+}
+
+@media (max-height: 720px) {
+  :root {
+    --dock-h: clamp(110px, 20vh, 160px);
+    --chart-h: clamp(80px, 14vh, 120px);
+    --ticket-h: clamp(150px, 26vh, 200px);
+    --header-h: 44px;
+  }
 }

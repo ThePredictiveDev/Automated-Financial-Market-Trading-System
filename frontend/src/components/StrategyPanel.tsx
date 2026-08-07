@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Square, Info, TrendingUp, Activity, BarChart2, Layers, Brain, Clock, Code2, BookOpen } from 'lucide-react';
+import { Play, Square, Info, TrendingUp, Activity, BarChart2, Layers, Clock, BookOpen } from 'lucide-react';
 import type { StrategyStates } from '../types';
 
 interface StrategyPanelProps {
@@ -202,7 +202,7 @@ export const StrategyPanel: React.FC<StrategyPanelProps> = ({ strategyStates, on
       </div>
 
       {/* Strategy Cards Grid */}
-      <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px', alignContent: 'start', minHeight: 0 }}>
+      <div className="strategy-grid">
         {STRATEGIES.map((strat) => {
           const meta = STATUS_META[strat.status];
           const isLive = strat.status === 'live';
