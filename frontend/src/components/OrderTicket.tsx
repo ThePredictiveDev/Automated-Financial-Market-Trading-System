@@ -83,7 +83,7 @@ export const OrderTicket: React.FC<OrderTicketProps> = ({
   };
 
   return (
-    <div className="terminal-panel" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+    <div className="terminal-panel order-ticket" style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Title Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>
         <h3 style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>

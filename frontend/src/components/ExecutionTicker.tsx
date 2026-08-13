@@ -54,7 +54,8 @@ export const ExecutionTicker: React.FC<ExecutionTickerProps> = ({ trades }) => {
       </p>
 
       {/* Grid Column Headers */}
-      <div style={{
+      <div className="exec-feed-scroll">
+      <div className="exec-feed-grid" style={{
         display: 'grid',
         gridTemplateColumns: '50px 38px 45px 32px 52px 42px 1.4fr 1.4fr 45px',
         padding: '2px 4px',
@@ -83,7 +84,7 @@ export const ExecutionTicker: React.FC<ExecutionTickerProps> = ({ trades }) => {
       </div>
 
       {/* Fills Feed List */}
-      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '3px', minHeight: 0 }}>
+      <div className="exec-feed-body" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '3px', minHeight: 0 }}>
         {trades.length === 0 ? (
           <div style={{ fontSize: '10px', color: 'var(--text-dim)', textAlign: 'center', padding: '36px 0', fontFamily: 'var(--font-mono)' }}>
             [AWAITING MATCHING ENGINE MATCH FILLS]
@@ -99,7 +100,7 @@ export const ExecutionTicker: React.FC<ExecutionTickerProps> = ({ trades }) => {
             return (
               <div
                 key={t.id}
-                className={isNew ? 'slide-in-row' : ''}
+                className={`exec-feed-grid${isNew ? ' slide-in-row' : ''}`}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '50px 38px 45px 32px 52px 42px 1.4fr 1.4fr 45px',
@@ -178,6 +179,7 @@ export const ExecutionTicker: React.FC<ExecutionTickerProps> = ({ trades }) => {
             );
           })
         )}
+      </div>
       </div>
     </div>
   );

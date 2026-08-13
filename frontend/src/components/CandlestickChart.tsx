@@ -192,7 +192,7 @@ export const CandlestickChart: React.FC<LiveMarketDataChartProps> = ({
       </div>
 
       {/* Description */}
-      <p style={{ fontSize: '8px', color: 'var(--text-dim)', marginBottom: '6px', marginTop: '-2px', lineHeight: 1.3, flexShrink: 0 }}>
+      <p className="chart-panel-desc" style={{ fontSize: '8px', color: 'var(--text-dim)', marginBottom: '6px', marginTop: '-2px', lineHeight: 1.3, flexShrink: 0 }}>
         Visualizes the real-time transaction price activity and volume ticks generated directly from the simulator's matching engine loop.
       </p>
 

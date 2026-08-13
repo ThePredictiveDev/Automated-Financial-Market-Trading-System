@@ -210,7 +210,7 @@ export const SystemPipeline: React.FC<SystemPipelineProps> = ({ lifecycle, isCon
           <span style={{ fontSize: '10px', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.8px', color: 'var(--text-main)' }}>
             Live Order Execution Pipeline
           </span>
-          <span style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
+          <span className="pipeline-banner-desc" style={{ fontSize: '9px', color: 'var(--text-dim)' }}>
             — Visualizes the real-time path every order takes through the matching system
           </span>
         </div>
@@ -236,7 +236,7 @@ export const SystemPipeline: React.FC<SystemPipelineProps> = ({ lifecycle, isCon
       </div>
 
       {/* Node Flow */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '2px 0' }}>
+      <div className="pipeline-nodes" style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '2px 0' }}>
         {NODES.map((node, idx) => {
           const NodeIcon = node.icon;
           const isMD = node.id === 'market_data';
