@@ -16,7 +16,7 @@ import { MarketActivity } from './components/MarketActivity';
 import { NBBOBar } from './components/NBBOBar';
 import { SessionSummary } from './components/SessionSummary';
 import { WorkspaceSplitter } from './components/WorkspaceSplitter';
-import type { SnapshotPayload, LifecycleState, EquityPoint, TradeRecord } from './types';
+import type { SnapshotPayload, LifecycleState, EquityPoint, TradeRecord, HistoryPoint } from './types';
 import { apiUrl, wsUrl } from './config';
 
 const SPLIT_STORAGE_KEY = 'tradeflow.workspace-split-ratio';
@@ -86,6 +86,38 @@ function clampDockHeight(splitHeight: number, desired: number) {
 }
 
 type BottomTab = 'portfolio' | 'strategies' | 'analytics' | 'system' | 'activity' | 'replay';
+
+const LIVE_CHART_HISTORY_LIMIT = 60;
+
+/**
+ * Live WS frames after the handshake send only new chart points (H1).
+ * Replay still reconstructs a full history window on every SNAPSHOT — replace.
+ */
+function mergeLiveChartHistory(
+  prev: SnapshotPayload | null,
+  payload: SnapshotPayload,
+): HistoryPoint[] {
+  const incoming = payload.history ?? [];
+  if ((payload as SnapshotPayload & { replay_meta?: unknown }).replay_meta) {
+    return incoming.slice(-LIVE_CHART_HISTORY_LIMIT);
+  }
+  if (!prev || prev.symbol !== payload.symbol || prev.history.length === 0) {
+    return incoming.slice(-LIVE_CHART_HISTORY_LIMIT);
+  }
+  if (incoming.length === 0) {
+    return prev.history;
+  }
+  const lastPrevTs = prev.history[prev.history.length - 1].timestamp;
+  const newPoints = incoming.filter(p => p.timestamp > lastPrevTs);
+  const looksLikeFullWindow = incoming.length > newPoints.length && incoming.length >= 10;
+  if (looksLikeFullWindow) {
+    return incoming.slice(-LIVE_CHART_HISTORY_LIMIT);
+  }
+  if (newPoints.length === 0) {
+    return prev.history;
+  }
+  return [...prev.history, ...newPoints].slice(-LIVE_CHART_HISTORY_LIMIT);
+}
 
 const INITIAL_LIFECYCLE: LifecycleState = {
   stage: 'idle',
@@ -423,27 +455,31 @@ export function App() {
 
           // 3. Handle standard SNAPSHOT frames
           if (payload.type === 'SNAPSHOT') {
-            setData(payload);
+            const snapshot = payload as SnapshotPayload;
+            setData(prev => ({
+              ...snapshot,
+              history: mergeLiveChartHistory(prev, snapshot),
+            }));
             
             // Detect market ticks
-            if (lastPriceRef.current !== payload.last_price) {
+            if (lastPriceRef.current !== snapshot.last_price) {
               ticksCountRef.current++;
-              lastPriceRef.current = payload.last_price;
+              lastPriceRef.current = snapshot.last_price;
             }
 
             // Keep track of current symbol prices
             setSymbolPrices(prev => ({
               ...prev,
-              [payload.symbol]: payload.last_price
+              [snapshot.symbol]: snapshot.last_price
             }));
 
             // Record net liquidating equity history
-            if (payload.portfolio?.net_liq) {
+            if (snapshot.portfolio?.net_liq) {
               setEquityHistory(prev => {
                 const now = Date.now();
                 const lastPoint = prev[prev.length - 1];
                 if (!lastPoint || now - lastPoint.t >= 1000) {
-                  const updated = [...prev, { t: now, v: payload.portfolio.net_liq }];
+                  const updated = [...prev, { t: now, v: snapshot.portfolio.net_liq }];
                   return updated.slice(-100);
                 }
                 return prev;
@@ -451,24 +487,24 @@ export function App() {
             }
 
             // Log non-user trade execution ticker updates
-            if (payload.recent_trades) {
+            if (snapshot.recent_trades) {
               if (prevTradesCountRef.current === 0) {
-                prevTradesCountRef.current = payload.recent_trades.length;
-              } else if (prevTradesCountRef.current < payload.recent_trades.length) {
-                const newTrades = payload.recent_trades.slice(prevTradesCountRef.current);
+                prevTradesCountRef.current = snapshot.recent_trades.length;
+              } else if (prevTradesCountRef.current < snapshot.recent_trades.length) {
+                const newTrades = snapshot.recent_trades.slice(prevTradesCountRef.current);
                 newTrades.forEach((t: TradeRecord) => {
                   if (t.buyer_id !== 'user' && t.seller_id !== 'user') {
                     logEvent(`Trade Executed: ${t.quantity} shs ${t.symbol} @ $${t.price.toFixed(2)} (${t.buyer_id} / ${t.seller_id})`, 'fill');
                   }
                 });
-                prevTradesCountRef.current = payload.recent_trades.length;
+                prevTradesCountRef.current = snapshot.recent_trades.length;
               }
             }
 
             // Log Event: Bot Quote Updated
-            if (payload.strategy_states?.market_maker || payload.strategy_states?.momentum || payload.strategy_states?.ema) {
-              if (lastPriceRef.current !== payload.last_price && lastPriceRef.current !== null) {
-                logEvent(`Bot Quote Updated: Algos posted quotes for ${payload.symbol} @ $${payload.last_price.toFixed(2)}`, 'bot');
+            if (snapshot.strategy_states?.market_maker || snapshot.strategy_states?.momentum || snapshot.strategy_states?.ema) {
+              if (lastPriceRef.current !== snapshot.last_price && lastPriceRef.current !== null) {
+                logEvent(`Bot Quote Updated: Algos posted quotes for ${snapshot.symbol} @ $${snapshot.last_price.toFixed(2)}`, 'bot');
               }
             }
           }
