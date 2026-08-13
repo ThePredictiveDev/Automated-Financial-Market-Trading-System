@@ -15,8 +15,75 @@ import { ReplayPanel } from './components/ReplayPanel';
 import { MarketActivity } from './components/MarketActivity';
 import { NBBOBar } from './components/NBBOBar';
 import { SessionSummary } from './components/SessionSummary';
+import { WorkspaceSplitter } from './components/WorkspaceSplitter';
 import type { SnapshotPayload, LifecycleState, EquityPoint, TradeRecord } from './types';
 import { apiUrl, wsUrl } from './config';
+
+const SPLIT_STORAGE_KEY = 'tradeflow.workspace-split-ratio';
+const SPLITTER_PX = 6;
+
+function readStoredSplitRatio(): number | null {
+  try {
+    const raw = localStorage.getItem(SPLIT_STORAGE_KEY);
+    if (!raw) return null;
+    const value = parseFloat(raw);
+    if (!Number.isFinite(value) || value <= 0.08 || value >= 0.72) return null;
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function persistSplitRatio(ratio: number) {
+  try {
+    localStorage.setItem(SPLIT_STORAGE_KEY, String(ratio));
+  } catch {
+    /* private mode / quota */
+  }
+}
+
+function tabBarHeight() {
+  return window.innerWidth <= 1280 ? 28 : 30;
+}
+
+function minWorkspaceHeight() {
+  const h = window.innerHeight;
+  const w = window.innerWidth;
+  if (h <= 720) return 250;
+  if (h <= 800) return 260;
+  if (w <= 1280) return 280;
+  if (w <= 1440) return 300;
+  return 320;
+}
+
+function minDockHeight() {
+  const h = window.innerHeight;
+  if (h <= 720) return 140;
+  if (h <= 800) return 150;
+  if (window.innerWidth <= 1280) return 160;
+  return 190;
+}
+
+/** Matches the previous CSS --dock-h clamps plus the tab bar. */
+function defaultDockHeight() {
+  const vh = window.innerHeight;
+  const vw = window.innerWidth;
+  let content: number;
+  if (vh <= 720) content = Math.min(160, Math.max(110, vh * 0.20));
+  else if (vh <= 800) content = Math.min(180, Math.max(120, vh * 0.22));
+  else if (vw <= 1280) content = Math.min(190, Math.max(130, vh * 0.26));
+  else if (vw <= 1440) content = Math.min(210, Math.max(140, vh * 0.24));
+  else if (vw <= 1600) content = Math.min(230, Math.max(150, vh * 0.24));
+  else content = Math.min(250, Math.max(160, vh * 0.26));
+  return content + tabBarHeight();
+}
+
+function clampDockHeight(splitHeight: number, desired: number) {
+  const minDock = minDockHeight();
+  const minWorkspace = minWorkspaceHeight();
+  const maxDock = Math.max(minDock, splitHeight - minWorkspace - SPLITTER_PX);
+  return Math.round(Math.min(maxDock, Math.max(minDock, desired)));
+}
 
 type BottomTab = 'portfolio' | 'strategies' | 'analytics' | 'system' | 'activity' | 'replay';
 
@@ -71,6 +138,66 @@ export function App() {
     ];
   });
   const [userOrderCount, setUserOrderCount] = useState(0);
+
+  const splitRef = useRef<HTMLDivElement | null>(null);
+  const splitRatioRef = useRef<number | null>(readStoredSplitRatio());
+  const draggingSplitRef = useRef(false);
+  const [dockHeight, setDockHeight] = useState(() =>
+    typeof window === 'undefined' ? 280 : clampDockHeight(window.innerHeight * 0.7, defaultDockHeight())
+  );
+  const [dockBounds, setDockBounds] = useState({ min: 190, max: 480 });
+
+  const applySplitFromRatio = useCallback(() => {
+    if (draggingSplitRef.current) return;
+    if (typeof window !== 'undefined' && window.innerWidth < 768) return;
+    const splitEl = splitRef.current;
+    if (!splitEl) return;
+    const splitHeight = splitEl.clientHeight;
+    if (splitHeight <= 0) return;
+    const desired = splitRatioRef.current != null
+      ? splitRatioRef.current * splitHeight
+      : defaultDockHeight();
+    const next = clampDockHeight(splitHeight, desired);
+    setDockHeight(next);
+    setDockBounds({
+      min: minDockHeight(),
+      max: Math.max(minDockHeight(), splitHeight - minWorkspaceHeight() - SPLITTER_PX),
+    });
+  }, []);
+
+  useEffect(() => {
+    const splitEl = splitRef.current;
+    if (!splitEl) return;
+    applySplitFromRatio();
+    const observer = new ResizeObserver(() => applySplitFromRatio());
+    observer.observe(splitEl);
+    window.addEventListener('resize', applySplitFromRatio);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', applySplitFromRatio);
+    };
+  }, [applySplitFromRatio]);
+
+  const handleSplitDrag = useCallback((clientY: number) => {
+    if (window.innerWidth < 768) return;
+    const splitEl = splitRef.current;
+    if (!splitEl) return;
+    draggingSplitRef.current = true;
+    const rect = splitEl.getBoundingClientRect();
+    const desired = rect.bottom - clientY;
+    const next = clampDockHeight(rect.height, desired);
+    splitRatioRef.current = next / rect.height;
+    setDockHeight(next);
+    setDockBounds({
+      min: minDockHeight(),
+      max: Math.max(minDockHeight(), rect.height - minWorkspaceHeight() - SPLITTER_PX),
+    });
+  }, []);
+
+  const handleSplitDragEnd = useCallback(() => {
+    draggingSplitRef.current = false;
+    if (splitRatioRef.current != null) persistSplitRatio(splitRatioRef.current);
+  }, []);
 
   // ── Global tooltip controller ─────────────────────────────────────────────
   // Positions .tooltip-box elements using position:fixed so they escape
@@ -512,8 +639,9 @@ export function App() {
         />
       </div>
 
-      {/* Scrollable trading workspace */}
-      <main className="workspace">
+      {/* Resizable trading workspace + lower tabbed panels */}
+      <div className="workspace-split" ref={splitRef}>
+        <main className="workspace">
         <div className="workspace-col workspace-col--book">
           <OrderBook
             bids={bids}
@@ -553,8 +681,16 @@ export function App() {
         </div>
       </main>
 
+        <WorkspaceSplitter
+          dockHeight={dockHeight}
+          minDock={dockBounds.min}
+          maxDock={dockBounds.max}
+          onDrag={handleSplitDrag}
+          onDragEnd={handleSplitDragEnd}
+        />
+
       {/* Fixed bottom navigation + secondary panels */}
-      <div className="bottom-dock">
+      <div className="bottom-dock" style={{ height: dockHeight }}>
         <nav className="tab-bar" aria-label="Secondary panels">
           <button
             className={`tab-btn ${activeTab === 'portfolio' ? 'active' : ''}`}
@@ -646,6 +782,7 @@ export function App() {
             />
           )}
         </div>
+      </div>
       </div>
 
       {replaySummary && (

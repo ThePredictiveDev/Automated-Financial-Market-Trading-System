@@ -115,7 +115,7 @@ export const PortfolioSummary: React.FC<PortfolioSummaryProps> = ({
   const pnlColor = (v: number) => (v >= 0 ? 'var(--buy-green)' : 'var(--sell-red)');
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: '12px', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+    <div className="stack-on-narrow" style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: '12px', height: '100%', minHeight: 0, overflow: 'hidden' }}>
 
       {/* ── Left: Portfolio Summary + Risk Summary ─────────────────────────── */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minHeight: 0, overflow: 'hidden' }}>

@@ -23,21 +23,21 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="app-header">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className="header-left">
+        <div className="header-brand">
           <Terminal size={18} color="var(--accent-cyan)" />
           <div>
             <h1 style={{ fontSize: '15px', fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase' }}>
               TRADE<span style={{ color: 'var(--accent-cyan)' }}>FLOW</span>
             </h1>
-            <span style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 600, display: 'block', marginTop: '-2px' }}>
+            <span className="header-subtitle" style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 600, display: 'block', marginTop: '-2px' }}>
               L3 Matching Console
             </span>
           </div>
         </div>
         
         {/* LIVE/REPLAY Mode Indicator */}
-        <div style={{
+        <div className="header-mode" style={{
           padding: '4px 12px',
           borderRadius: '4px',
           background: replayMode ? 'rgba(255, 149, 0, 0.15)' : 'rgba(0, 230, 118, 0.15)',
@@ -65,7 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Symbol Selector Dropdown */}
-        <div style={{ marginLeft: '16px' }}>
+        <div className="header-symbol" style={{ marginLeft: '16px' }}>
           <select
             value={activeSymbol}
             onChange={(e) => onSymbolChange(e.target.value)}
@@ -88,7 +88,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Price & Stats Header Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginLeft: '8px' }}>
+        <div className="header-stats" style={{ display: 'flex', alignItems: 'center', gap: '24px', marginLeft: '8px' }}>
           <div style={{ borderLeft: '1px solid var(--border-color)', paddingLeft: '20px' }}>
             <div style={{ fontSize: '10px', color: 'var(--text-dim)', textTransform: 'uppercase', fontWeight: 600 }}>
               Last Trade
@@ -110,8 +110,9 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* System Status Indicators */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div className="header-status" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
         <div
+          className="header-engine-badge"
           style={{
             display: 'flex',
             alignItems: 'center',

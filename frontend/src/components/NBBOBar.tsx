@@ -25,6 +25,7 @@ export function NBBOBar({ bestBid, bestAsk, spread, symbol, isConnected }: Props
 
   return (
     <div
+      className="nbbo-bar"
       style={{
         background: 'var(--bg-secondary)',
         borderBottom: '1px solid var(--border-color)',

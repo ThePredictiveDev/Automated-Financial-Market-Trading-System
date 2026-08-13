@@ -55,7 +55,7 @@ export const MarketActivity: React.FC<MarketActivityProps> = ({
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '12px', height: '100%', minHeight: 0, padding: '2px 0', overflow: 'hidden' }}>
+    <div className="stack-on-narrow" style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '12px', height: '100%', minHeight: 0, padding: '2px 0', overflow: 'hidden' }}>
       
       {/* Left Part: Engine Diagnostic Metrics Grid */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', height: '100%', minHeight: 0, overflow: 'hidden' }}>
