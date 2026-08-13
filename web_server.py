@@ -361,6 +361,14 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+# Internal matching / bot cadence (unchanged). Live WS snapshots are sent
+# less often so Render outbound bandwidth stays within the free-tier cap.
+SIM_TICK_SECONDS = 0.4
+WS_BROADCAST_INTERVAL_SECONDS = 1.0
+# Last chart-history timestamp included in a *broadcast* SNAPSHOT (not the
+# per-connection handshake). Used so follow-up frames send only new points.
+_ws_history_watermark: Dict[str, float] = {}
+
 # -----------------------------------------------------------------------------
 # Background Synthetic Market Data & Bot Runner
 # -----------------------------------------------------------------------------
@@ -370,9 +378,11 @@ async def market_simulation_loop():
         "cash": float(state.portfolio.cash),
         "realized_pnl": float(state.portfolio.realized_pnl)
     }
+    last_ws_broadcast_at = time.monotonic()
+    last_ws_broadcast_symbol: Optional[str] = None
     while True:
         try:
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(SIM_TICK_SECONDS)
 
             # Check portfolio updates
             current_cash = float(state.portfolio.cash)
@@ -487,19 +497,48 @@ async def market_simulation_loop():
             # Update previous state tracking for next iteration
             state._prev_strategy_states = dict(state.strategy_states)
             
-            # Periodic checkpoint for replay (every 30 seconds)
+            # Periodic checkpoint for replay (disk only — not a WS payload)
             if state.recorder.should_checkpoint():
                 snapshot = build_snapshot_payload(state.active_symbol)
                 state.recorder.record_checkpoint(snapshot)
-            
-            # Broadcast latest state to WebSocket clients
-            snapshot = build_snapshot_payload(state.active_symbol)
-            await manager.broadcast(snapshot)
+
+            # H4: do not build live WS snapshots when nobody is connected.
+            # H2: broadcast at ~1 Hz; sim / matching / bots still tick at 0.4s.
+            if manager.active_connections:
+                now_mono = time.monotonic()
+                if now_mono - last_ws_broadcast_at >= WS_BROADCAST_INTERVAL_SECONDS:
+                    symbol = state.active_symbol
+                    send_full_history = (
+                        last_ws_broadcast_symbol is None
+                        or symbol != last_ws_broadcast_symbol
+                    )
+                    history_since = (
+                        None
+                        if send_full_history
+                        else _ws_history_watermark.get(symbol)
+                    )
+                    snapshot = build_snapshot_payload(symbol, history_since=history_since)
+                    await manager.broadcast(snapshot)
+                    hist = snapshot.get("history") or []
+                    if hist:
+                        _ws_history_watermark[symbol] = float(hist[-1]["timestamp"])
+                    last_ws_broadcast_at = now_mono
+                    last_ws_broadcast_symbol = symbol
 
         except Exception as e:
             logger.error(f"Error in simulation loop: {e}", exc_info=True)
 
-def build_snapshot_payload(symbol: str) -> Dict[str, Any]:
+def _chart_history_for_snapshot(symbol: str, history_since: Optional[float] = None) -> List[Dict[str, Any]]:
+    """Last 60 chart points, or only points newer than a live-WS watermark (H1)."""
+    full_history = state.price_histories.get(symbol, [])
+    if history_since is None:
+        return full_history[-60:]
+    incremental = [p for p in full_history if p["timestamp"] > history_since]
+    if len(incremental) > 60:
+        return incremental[-60:]
+    return incremental
+
+def build_snapshot_payload(symbol: str, history_since: Optional[float] = None) -> Dict[str, Any]:
     ob = state.order_books[symbol]
     me = state.matching_engines[symbol]
 
@@ -557,7 +596,7 @@ def build_snapshot_payload(symbol: str) -> Dict[str, Any]:
         "spread": spread,
         "bids": bids,
         "asks": asks,
-        "history": state.price_histories.get(symbol, [])[-60:],
+        "history": _chart_history_for_snapshot(symbol, history_since),
         "user_orders": user_orders,
         "recent_trades": [t for t in state.recent_trades if t["symbol"] == symbol][:20],
         "portfolio": {
@@ -882,7 +921,7 @@ async def replay_list_sessions():
 async def websocket_stream(websocket: WebSocket):
     await manager.connect(websocket)
     try:
-        # Initial snapshot
+        # Handshake: full SNAPSHOT including the last 60 chart points (H1).
         await websocket.send_json(build_snapshot_payload(state.active_symbol))
         while True:
             # Keep connection open & handle incoming client messages if any
