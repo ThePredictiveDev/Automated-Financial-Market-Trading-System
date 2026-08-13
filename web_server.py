@@ -621,16 +621,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Trading Simulator Web API", lifespan=lifespan)
 
-# Local Vite defaults; set CORS_ORIGINS (comma-separated) on Render for the
-# deployed frontend URL, e.g. https://your-app.onrender.com
-_cors_origins = [
-    o.strip()
-    for o in os.getenv(
-        "CORS_ORIGINS",
-        "http://localhost:5173,http://127.0.0.1:5173",
-    ).split(",")
-    if o.strip()
-]
+# Browser CORS applies to REST (e.g. POST /api/order) but not to WebSockets.
+# Always allow local Vite plus the production Vercel origin. CORS_ORIGINS can
+# add more hosts; it no longer *replaces* these defaults (a missing/wrong env
+# var was dropping the live frontend from the allow list).
+PRODUCTION_FRONTEND_ORIGIN = "https://tradeflow-demo-omega.vercel.app"
+
+
+def _load_cors_origins(env_value: Optional[str] = None) -> List[str]:
+    defaults = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        PRODUCTION_FRONTEND_ORIGIN,
+    ]
+    raw = os.getenv("CORS_ORIGINS", "") if env_value is None else env_value
+    extra = [o.strip().rstrip("/") for o in raw.split(",") if o.strip()]
+    return list(dict.fromkeys(defaults + extra))
+
+
+_cors_origins = _load_cors_origins()
 
 app.add_middleware(
     CORSMiddleware,
