@@ -40,9 +40,6 @@
   --header-h: 52px;
   --tab-h: 30px;
   --dock-h: clamp(160px, 26vh, 250px);
-  /* feed-h is shared by the feed panel AND the journey panel so that
-     chart height always equals ticket height within their columns */
-  --feed-h: 140px;
   /* Pipeline chrome density controls */
   --pipeline-pad-y: 8px;
   --pipeline-inner-gap: 6px;
@@ -226,14 +223,14 @@ body.is-ns-resizing * {
 }
 
 .workspace-panel--chart {
-  flex: 1 1 0;
+  flex: 2 1 0;
   min-height: 160px;
   overflow: hidden;
 }
 
 .workspace-panel--feed {
-  flex: 0 0 var(--feed-h);
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 100px;
   overflow: hidden;
 }
 
@@ -242,7 +239,7 @@ body.is-ns-resizing * {
 }
 
 .workspace-panel--ticket {
-  flex: 1 1 0;
+  flex: 2 1 0;
   min-height: 160px;
   overflow: hidden;
 }
@@ -252,8 +249,8 @@ body.is-ns-resizing * {
 }
 
 .workspace-panel--journey {
-  flex: 0 0 var(--feed-h);
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 100px;
   overflow: hidden;
 }
 
@@ -578,7 +575,6 @@ select.input-field {
     --pad-x: 12px;
     --pad-y: 10px;
     --dock-h: clamp(150px, 24vh, 230px);
-    --feed-h: 125px;
     --pipeline-pad-y: 6px;
     --pipeline-inner-gap: 5px;
     --pipeline-node-size: 22px;
@@ -597,7 +593,6 @@ select.input-field {
     --pad-y: 8px;
     --header-h: 48px;
     --dock-h: clamp(140px, 24vh, 210px);
-    --feed-h: 112px;
     --pipeline-pad-y: 5px;
     --pipeline-inner-gap: 4px;
     --pipeline-node-size: 20px;
@@ -627,7 +622,6 @@ select.input-field {
     --header-h: 46px;
     --tab-h: 28px;
     --dock-h: clamp(130px, 26vh, 190px);
-    --feed-h: 100px;
     --pipeline-pad-y: 4px;
     --pipeline-inner-gap: 3px;
     --pipeline-node-size: 18px;
@@ -663,7 +657,6 @@ select.input-field {
 @media (max-height: 800px) {
   :root {
     --dock-h: clamp(120px, 22vh, 180px);
-    --feed-h: 100px;
   }
 
   .workspace {
@@ -675,7 +668,6 @@ select.input-field {
 @media (max-height: 720px) {
   :root {
     --dock-h: clamp(110px, 20vh, 160px);
-    --feed-h: 88px;
     --header-h: 44px;
     --pipeline-pad-y: 3px;
     --pipeline-inner-gap: 2px;
