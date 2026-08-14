@@ -378,7 +378,10 @@ async def market_simulation_loop():
         "cash": float(state.portfolio.cash),
         "realized_pnl": float(state.portfolio.realized_pnl)
     }
-    last_ws_broadcast_at = time.monotonic()
+    # Deadline is advanced by exactly one interval per broadcast (rather than
+    # reset to "now") so the long-run average stays at 1 Hz instead of drifting
+    # out to the next 0.4s tick boundary every time.
+    next_ws_broadcast_at = time.monotonic() + WS_BROADCAST_INTERVAL_SECONDS
     last_ws_broadcast_symbol: Optional[str] = None
     while True:
         try:
@@ -506,7 +509,7 @@ async def market_simulation_loop():
             # H2: broadcast at ~1 Hz; sim / matching / bots still tick at 0.4s.
             if manager.active_connections:
                 now_mono = time.monotonic()
-                if now_mono - last_ws_broadcast_at >= WS_BROADCAST_INTERVAL_SECONDS:
+                if now_mono >= next_ws_broadcast_at:
                     symbol = state.active_symbol
                     send_full_history = (
                         last_ws_broadcast_symbol is None
@@ -522,7 +525,11 @@ async def market_simulation_loop():
                     hist = snapshot.get("history") or []
                     if hist:
                         _ws_history_watermark[symbol] = float(hist[-1]["timestamp"])
-                    last_ws_broadcast_at = now_mono
+                    next_ws_broadcast_at += WS_BROADCAST_INTERVAL_SECONDS
+                    # If the loop stalled (long GC, blocking bot tick), don't
+                    # burst-send to catch up on a backlog of missed deadlines.
+                    if next_ws_broadcast_at <= now_mono:
+                        next_ws_broadcast_at = now_mono + WS_BROADCAST_INTERVAL_SECONDS
                     last_ws_broadcast_symbol = symbol
 
         except Exception as e:
