@@ -321,8 +321,14 @@ export function App() {
   useEffect(() => {
     let ws: WebSocket;
     let reconnectTimeout: ReturnType<typeof setTimeout>;
+    // StrictMode mounts effects twice in dev. ws.close() resolves async, so the
+    // onclose below would otherwise fire *after* cleanup and schedule a
+    // reconnect for an effect that no longer exists, orphaning a socket.
+    let disposed = false;
 
     const connect = () => {
+      if (disposed) return;
+
       // Choose WebSocket endpoint based on replay mode
       const wsUrlFull = replayMode 
         ? wsUrl('/ws/replay') 
@@ -331,6 +337,10 @@ export function App() {
       ws = new WebSocket(wsUrlFull);
       wsRef.current = ws;
       ws.onopen = () => {
+        if (disposed) {
+          ws.close();
+          return;
+        }
         setIsConnected(true);
         const mode = replayMode ? 'Replay' : 'Live';
         logEvent(`${mode} Connection Established`, 'system');
@@ -514,19 +524,32 @@ export function App() {
       };
 
       ws.onclose = () => {
+        if (disposed) return;
         setIsConnected(false);
         logEvent('Connection Lost - Attempting Reconnect...', 'system');
         reconnectTimeout = setTimeout(connect, 2000);
       };
 
-      ws.onerror = () => setIsConnected(false);
+      ws.onerror = () => {
+        if (disposed) return;
+        setIsConnected(false);
+      };
     };
 
     connect();
 
     return () => {
-      if (ws) ws.close();
+      disposed = true;
       clearTimeout(reconnectTimeout);
+      if (ws) {
+        // Drop handlers before closing so no queued event revives the socket.
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onclose = null;
+        ws.onerror = null;
+        ws.close();
+      }
+      wsRef.current = null;
     };
   }, [logEvent, replayMode]); // Reconnect when replay mode changes
 
